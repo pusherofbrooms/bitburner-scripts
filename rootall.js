@@ -11,7 +11,7 @@ export function getAllServers(ns, start = 'home', visited = new Set()) {
     return Array.from(visited);
 }
 
-
+/** @param {NS} ns */
 export async function main(ns) {
     const allServers = getAllServers(ns);
     ns.tprint(`Total servers discovered: ${allServers.length}`);
