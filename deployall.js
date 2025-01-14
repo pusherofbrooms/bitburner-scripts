@@ -1,3 +1,4 @@
+/** @param {NS} ns */
 export function getAllServers(ns, start = 'home', visited = new Set()) {
     visited.add(start);
     const connections = ns.scan(start);
@@ -12,6 +13,7 @@ export function getAllServers(ns, start = 'home', visited = new Set()) {
 }
 
 
+/** @param {NS} ns */
 export async function main(ns) {
     const script = ns.args[0];
     const target = ns.args[1];
