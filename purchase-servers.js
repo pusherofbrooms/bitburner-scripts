@@ -6,6 +6,15 @@ export async function main(ns) {
   const ram = ns.args[0];
   const numServers = ns.args[1];
 
+  // print powers of 2 up to max if no args.
+  if (! ram){
+    ns.tprint("Powers of 2 above 8192");
+    for (let i=12; i < 21; i++){
+      ns.tprint(`2 ^ ${i}: ${2 ** i}`);
+    }
+    ns.exit();
+  }
+
   const cost = ns.getPurchasedServerCost(ram) * numServers;
   const coin = ns.getPlayer().money;
   if (coin < cost){
