@@ -19,6 +19,7 @@ export async function main(ns) {
         const portsReq = ns.getServerNumPortsRequired(host);
         const hasRoot = ns.hasRootAccess(host);
         const ram = ns.getServerMaxRam(host);
+        const growth = ns.getServerGrowth(host);
         return {
             host,
             requiredLevel,
@@ -28,7 +29,8 @@ export async function main(ns) {
             sec,
             portsReq,
             hasRoot,
-            ram
+            ram,
+            growth
         };
     });
 
@@ -45,14 +47,14 @@ export async function main(ns) {
         // CSV header
         ns.tprint("host,requiredLevel,maxMoney,moneyAvail,minSec,sec,portsReq,hasRoot,ram");
         for (const r of rows) {
-            ns.tprint(`${r.host},${r.requiredLevel},${r.maxMoney},${r.moneyAvail},${r.minSec},${r.sec},${r.portsReq},${r.hasRoot},${r.ram}`);
+            ns.tprint(`${r.host},${r.requiredLevel},${r.maxMoney},${r.moneyAvail},${r.minSec},${r.sec},${r.portsReq},${r.hasRoot},${r.ram},${r.growth}`);
         }
         return;
     }
 
     // Pretty table layout
-    const hdr = ["HOST", "REQ_LVL", "MAX $", "CUR $", "MIN SEC", "CUR SEC", "PORTS", "ROOT", "RAM"];
-    const colWidths = [20, 8, 12, 12, 8, 8, 6, 5, 8];
+    const hdr = ["HOST", "REQ_LVL", "MAX $", "CUR $", "MIN SEC", "CUR SEC", "PORTS", "ROOT", "RAM", "GROWTH"];
+    const colWidths = [20, 8, 12, 12, 8, 8, 6, 5, 8, 7];
 
     const pad = (s, w, right=true) => {
         const str = String(s);
@@ -72,7 +74,8 @@ export async function main(ns) {
             pad(round(r.sec,2), colWidths[5], false),
             pad(r.portsReq, colWidths[6], false),
             pad(r.hasRoot ? "Y" : "N", colWidths[7]),
-            pad(r.ram + "GB", colWidths[8], false)
+            pad(r.ram + "GB", colWidths[8], false),
+            pad(r.growth + "%", colWidths[9], false)
         ].join(" ");
         ns.tprint(line);
     }
