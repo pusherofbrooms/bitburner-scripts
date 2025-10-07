@@ -5,8 +5,7 @@ export async function main(ns) {
     ns.tprint(`Karma: ${player.karma}`);
     ns.tprint(`Homicide Count: ${player.numPeopleKilled}`);
     ns.tprint(`City: ${player.city}`);
-    ns.tprint(`Money: ${ns.nFormat(player.money, "$0.000a")}`);
-    ns.tprint(`Total Playtime (ms): ${player.playtimeSinceLastAug || player.playtimeSinceLastBitnode}`);
+    ns.tprint(`Money: \$${ns.formatNumber(player.money, 3)}`);
 
     // You can add more fields you care about below...
 }
