@@ -10,6 +10,11 @@ export async function main(ns) {
   const weakenScript = "batchweaken.js";
   const growScript = "batchgrow.js";
 
+  // time between batches
+  const batchTime = 400;
+
+  // hard limit on batches to stack
+  const batchLimit = 10;
   // spacing between threads in milliseconds
   const SPACING = 50;
 
@@ -84,7 +89,7 @@ export async function main(ns) {
                       weakenScriptRam * (weakenHackThreads + weakenGrowThreads);
     if (serverRam < neededRam){
       ns.print(`WARN: not enough memory. Needed: ${neededRam}, Available: ${serverRam}`);
-      await ns.sleep(500);
+      // await ns.sleep(500);
       return;
     }
     // setup timings.
@@ -98,16 +103,34 @@ export async function main(ns) {
     if (growThreads > 0) ns.exec(growScript, runServer, growThreads, target, growDelay);
     if (weakenGrowThreads > 0) ns.exec(weakenScript, runServer, weakenGrowThreads, target, weakenDelay2);
 
-    await ns.sleep(weakenTime + SPACING * 3);
+    // await ns.sleep(weakenTime + SPACING * 3);
   }
 
+  
   // main loop
   while(true){
-    try{
-      await runBatch();
-    } catch(err) {
-      ns.print(`Error: ${err}`);
-      await ns.sleep(100);
+    // we will stack batches every 200ms.
+    let wt = ns.getWeakenTime(target);
+    let batchCount = wt / batchTime;
+    // hard limit on batches
+    if (batchCount > batchLimit) {
+      batchCount = batchLimit;
     }
+    // We want to sleep after all threads until the first hwgw cycle is done
+    let finalSleep = (wt + batchTime) - (batchCount * batchTime);
+
+    for (let i=0; i<batchCount; i++){
+      try{
+        runBatch();
+        ns.print(`batch: ${i}`);
+      } catch(err) {
+        ns.print(`Error: ${err}`);
+        ns.print(`batchcount: ${i}`);
+        break; // from for loop
+      }
+      // sleep 200ms between batches
+      await ns.sleep(batchTime);
+    }
+    await ns.sleep(finalSleep);
   }
 }
