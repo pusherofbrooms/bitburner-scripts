@@ -4,17 +4,17 @@ export async function main(ns) {
   // args:
   // target: string
   const target = ns.args[0];
-  
+
+  // max batches:
+  const batchLimit = ns.args[1];
   // script locations
   const hackScript = "batchhack.js";
   const weakenScript = "batchweaken.js";
   const growScript = "batchgrow.js";
 
   // time between batches
-  const batchTime = 400;
+  const batchTime = 500;
 
-  // hard limit on batches to stack
-  const batchLimit = 10;
   // spacing between threads in milliseconds
   const SPACING = 50;
 
@@ -30,6 +30,7 @@ export async function main(ns) {
     const hackTime = ns.getHackTime(target);
     const growTime = ns.getGrowTime(target);
     const weakenTime = ns.getWeakenTime(target);
+
     return { hackTime, growTime, weakenTime};
   }
   // threads function
