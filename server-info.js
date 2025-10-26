@@ -1,12 +1,17 @@
 /** @param {NS} ns */
 export async function main(ns) {
-  const target = ns.args[0];
-  const details = ns.getServer(target);
-  ns.tprint(
-    `${target}\n` +
-    `Maximum Money:    ${details.moneyMax}\n` +
-    `Available Money:  ${details.moneyAvailable}\n` +
-    `Minimum Security: ${details.minDifficulty}\n` +
-    `Current Security: ${details.hackDifficulty}\n`
-  );
+  // provide info about an arbitrary number of servers.
+  // args: target [target]...
+  for (const target of ns.args){
+    const serverDetails = ns.getServer(target);
+
+    ns.tprint(
+      `\n` +
+      `Name: ${serverDetails.hostname}\n` +
+      `Minimum Security: ${serverDetails.minDifficulty}\n` +
+      `Current Security: ${serverDetails.hackDifficulty}\n` +
+      `Maximum Server Money: ${serverDetails.moneyMax}\n` +
+      `Current Server Money: ${serverDetails.moneyAvailable}\n`
+    );
+  }
 }
