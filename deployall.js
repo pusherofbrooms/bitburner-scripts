@@ -18,6 +18,7 @@ export async function main(ns) {
     const script = ns.args[0];
     const target = ns.args[1];
     const allServers = getAllServers(ns);
+    let scriptMem = ns.getScriptRam(script);
     for (const serv of allServers) {
       if (serv === "home" || serv.startsWith("pserv-")) continue;
       // if we have root access, copy the script,
@@ -25,7 +26,6 @@ export async function main(ns) {
       // and run the script.
       if (ns.hasRootAccess(serv)) {
         ns.tprint(`deploying to ${serv}\n`);
-        let scriptMem = ns.getScriptRam(script);
         let serverMem = ns.getServerMaxRam(serv);
         let threads = Math.floor(serverMem / scriptMem);
         if (threads > 0){
