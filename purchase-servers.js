@@ -3,8 +3,8 @@ export async function main(ns) {
   // args:
   // RAM in GB: integer
   // number of servers: integer
-  const ram = ns.args[0];
-  const numServers = ns.args[1];
+  const ram = Number(ns.args[0]);
+  const numServers = Number(ns.args[1] ?? 1);
 
   // print powers of 2 up to max if no args.
   if (! ram){
