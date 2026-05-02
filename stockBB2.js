@@ -23,7 +23,7 @@ export async function main(ns) {
     } else {
         if (Math.bitburner.stockmarket.moneyKeep) moneyKeep = Math.bitburner.stockmarket.moneyKeep;
     }
-    ns.tail();
+    ns.ui.openTail();
 
     let logObj = {};
     let tCount = 0;
@@ -148,10 +148,10 @@ export async function main(ns) {
             if (playerMoney - moneyKeep - commissionfee > minShareInvest) {
                 var shares = Math.min(maxShares, (playerMoney - moneyKeep - commissionfee) / askPrice);
                 shares = Math.floor(shares);
-                ns.stock.buy(symbl, shares);
+                ns.stock.buyStock(symbl, shares);
                 addTransaction(symbl, shares);
                 log("BFC", 'Forecast for ' + symbl + ' is ' + forecast);
-                logArr("BUY", cycle + ' Bought ' + shares + ' ' + symbl + ' shares for ' + ns.nFormat(askPrice, '0.000a') + ' (' + ns.nFormat(shares * askPrice, '0.000a') + ') bucks');
+                logArr("BUY", cycle + ' Bought ' + shares + ' ' + symbl + ' shares for ' + ns.format.number(askPrice, 3) + ' (' + ns.format.number(shares * askPrice, 3) + ') bucks');
             }
         }
     }
@@ -170,10 +170,10 @@ export async function main(ns) {
         var forecast = getForecast();
         if (forecast < maxFC) {
             var bidPrice = ns.stock.getBidPrice(symbl);
-            ns.stock.sell(symbl, shares);
+            ns.stock.sellStock(symbl, shares);
             addTransaction(symbl, -shares);
             log("SFC", 'Forecast for ' + symbl + ' is ' + forecast);
-            logArr("SELL", cycle + ' Sold ' + shares + ' ' + symbl + ' shares for ' + ns.nFormat(bidPrice, '0.000a') + ' (' + ns.nFormat(shares * bidPrice, '0.000a') + ') bucks');
+            logArr("SELL", cycle + ' Sold ' + shares + ' ' + symbl + ' shares for ' + ns.format.number(bidPrice, 3) + ' (' + ns.format.number(shares * bidPrice, 3) + ') bucks');
         }
     }
 
@@ -256,7 +256,7 @@ export async function main(ns) {
                     shareVauleSum += value;
                 }
             }
-            log("Value", ns.nFormat(shareVauleSum, "0.000a"));
+            log("Value", ns.format.number(shareVauleSum, 3));
             await ns.sleep(500);
         }
     }

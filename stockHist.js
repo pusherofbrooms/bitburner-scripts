@@ -3,7 +3,7 @@
 export async function main(ns) {
     const cyclesPerHour = 3600 / 6;
     const maxCyclesHistory = cyclesPerHour * 10 / 60; //10 minutes
-    ns.tail();
+    ns.ui.openTail();
     try {
         if (typeof (Math.bitburner) != "object") {
             Math.bitburner = {};

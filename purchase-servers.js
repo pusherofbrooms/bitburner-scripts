@@ -15,7 +15,7 @@ export async function main(ns) {
     ns.exit();
   }
 
-  const cost = ns.getPurchasedServerCost(ram) * numServers;
+  const cost = ns.cloud.getServerCost(ram) * numServers;
   const coin = ns.getPlayer().money;
   if (coin < cost){
     ns.tprint(
@@ -27,6 +27,6 @@ export async function main(ns) {
 
   for (let i=0; i < numServers; i++){
     let name = "pserv-" + i;
-    ns.purchaseServer(name, ram);
+    ns.cloud.purchaseServer(name, ram);
   }
 }

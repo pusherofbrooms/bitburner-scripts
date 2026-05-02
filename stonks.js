@@ -20,7 +20,7 @@ export async function main(ns) {
             if (currentPrice >= data.purchasePrice * PROFIT_THRESHOLD) {
                 const profit = position[0] * (currentPrice - data.purchasePrice);
                 ns.stock.sellStock(symbol, position[0]);
-                ns.print(`SOLD ${symbol} for ${ns.formatNumber(profit)} profit`);
+                ns.print(`SOLD ${symbol} for ${ns.format.number(profit)} profit`);
                 positions.delete(symbol);
             }
         }
@@ -50,7 +50,7 @@ export async function main(ns) {
                             purchasePrice: price,
                             shares: sharesToBuy
                         });
-                        ns.print(`BOUGHT ${sharesToBuy} shares of ${symbol} at ${ns.formatNumber(price)}`);
+                        ns.print(`BOUGHT ${sharesToBuy} shares of ${symbol} at ${ns.format.number(price)}`);
                     }
                 }
             }
@@ -63,7 +63,7 @@ export async function main(ns) {
             const currentValue = position[0] * ns.stock.getPrice(symbol);
             totalValue += currentValue;
         }
-        ns.print(`Current portfolio value: ${ns.formatNumber(totalValue)}`);
+        ns.print(`Current portfolio value: ${ns.format.number(totalValue)}`);
         
         await ns.sleep(6000); // Wait 6 seconds before next cycle
     }

@@ -5,7 +5,7 @@ export async function main(ns) {
     const host = ns.args[1];
 
     const coin = ns.getPlayer().money;
-    const cost = ns.getPurchasedServerUpgradeCost(host, ram);
+    const cost = ns.cloud.getServerUpgradeCost(host, ram);
     if (coin < cost){
       ns.tprint(
         `Not enough coin.\n` +
@@ -13,6 +13,6 @@ export async function main(ns) {
         `Coin: ${coin}`
       );
     } else {
-      ns.upgradePurchasedServer(host, ram);
+      ns.cloud.upgradeServer(host, ram);
     }
 }
