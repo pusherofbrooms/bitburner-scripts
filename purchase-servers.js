@@ -20,7 +20,7 @@ export async function main(ns) {
   if (coin < cost){
     ns.tprint(
       `You don't have enough coin to buy all servers.\n` +
-      `coin: ${coin}, cost: ${cost}\n`
+      `coin: ${formatMoney(coin)}, cost: ${formatMoney(cost)}\n`
     );
     return;
   }
@@ -28,5 +28,16 @@ export async function main(ns) {
   for (let i=0; i < numServers; i++){
     let name = "pserv-" + i;
     ns.cloud.purchaseServer(name, ram);
+  }
+
+  function formatMoney(n) {
+    if (n === 0) return "$0";
+    const negative = n < 0;
+    n = Math.abs(n);
+    if (n >= 1e12) return (negative ? "-" : "") + "$" + (n / 1e12).toFixed(2) + "t";
+    if (n >= 1e9) return (negative ? "-" : "") + "$" + (n / 1e9).toFixed(2) + "b";
+    if (n >= 1e6) return (negative ? "-" : "") + "$" + (n / 1e6).toFixed(2) + "m";
+    if (n >= 1e3) return (negative ? "-" : "") + "$" + (n / 1e3).toFixed(2) + "k";
+    return (negative ? "-" : "") + "$" + n.toFixed(0);
   }
 }
