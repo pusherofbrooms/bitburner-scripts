@@ -6,6 +6,7 @@ export async function main(ns) {
     ["reserve", 32],
     ["batchLimit", 80],
     ["targetLimit", 8],
+    ["refreshTargets", 60000],
     ["minMoney", 0.98],
     ["maxSec", 0.5],
     ["all", false],
@@ -13,7 +14,7 @@ export async function main(ns) {
   ]);
 
   if (flags.help || (!flags.all && flags._.length === 0)) {
-    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--targetLimit 8] [--steal 0.1] [--spacing 80] [--reserve 32] [--batchLimit 80]");
+    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--targetLimit 8] [--refreshTargets 60000] [--steal 0.1] [--spacing 80] [--reserve 32] [--batchLimit 80]");
     return;
   }
   if (!ns.fileExists("Formulas.exe", "home")) {
@@ -37,6 +38,7 @@ export async function main(ns) {
   const stealFraction = Math.max(0.001, Math.min(0.9, Number(flags.steal)));
   const batchLimit = Math.max(1, Number(flags.batchLimit));
   const targetLimit = Math.max(1, Math.floor(Number(flags.targetLimit)));
+  const targetRefreshMs = Math.max(5000, Number(flags.refreshTargets));
   const minMoneyRatio = Math.max(0.5, Math.min(1, Number(flags.minMoney)));
   const maxSecDrift = Math.max(0.05, Number(flags.maxSec));
   const hackRam = ns.getScriptRam(hackScript);
@@ -56,10 +58,23 @@ export async function main(ns) {
 
   let batchId = 0;
   const targetState = new Map(targets.map((target) => [target, { doneTimes: [], nextLaunch: 0 }]));
+  let nextTargetRefresh = Date.now() + targetRefreshMs;
 
   while (true) {
     await refreshWorkers();
-    targets = targets.filter((t) => ns.hasRootAccess(t) && ns.getServerMaxMoney(t) > 0);
+    if (flags.all && Date.now() >= nextTargetRefresh) {
+      targets = chooseTargets();
+      for (const target of targets) if (!targetState.has(target)) targetState.set(target, { doneTimes: [], nextLaunch: 0 });
+      const activeTargets = new Set(targets);
+      for (const [target, state] of targetState) {
+        state.doneTimes = state.doneTimes.filter((time) => time > Date.now());
+        if (!activeTargets.has(target) && state.doneTimes.length === 0) targetState.delete(target);
+      }
+      nextTargetRefresh = Date.now() + targetRefreshMs;
+      ns.print(`refreshed targets: ${targets.join(", ")}`);
+    } else {
+      targets = targets.filter((t) => ns.hasRootAccess(t) && ns.getServerMaxMoney(t) > 0);
+    }
 
     let launchedAny = false;
     for (const target of targets.sort((a, b) => scoreTarget(b) - scoreTarget(a))) {
@@ -100,9 +115,12 @@ export async function main(ns) {
   function scoreTarget(target) {
     const server = minServer(target);
     const player = ns.getPlayer();
-    const chance = ns.formulas.hacking.hackChance(server, player);
-    const weakenTime = ns.formulas.hacking.weakenTime(server, player);
-    return ns.getServerMaxMoney(target) * chance / Math.max(1, weakenTime);
+    const batch = planBatch(target);
+    if (!batch) return 0;
+    const hackChance = ns.formulas.hacking.hackChance(server, player);
+    const profit = server.moneyMax * batch.actualSteal * hackChance;
+    const batchSeconds = Math.max(0.001, (batch.weakenTime + spacing * 4) / 1000);
+    return profit / batchSeconds;
   }
 
   function isReady(target) {
@@ -130,7 +148,8 @@ export async function main(ns) {
     const weakenHackThreads = Math.max(1, Math.ceil(ns.hackAnalyzeSecurity(hackThreads, target) / ns.formulas.hacking.weakenEffect(1)));
     const weakenGrowThreads = Math.max(1, Math.ceil(ns.growthAnalyzeSecurity(growThreads, target) / ns.formulas.hacking.weakenEffect(1)));
 
-    return { hackThreads, growThreads, weakenHackThreads, weakenGrowThreads, weakenTime: ns.formulas.hacking.weakenTime(server, player) };
+    const batchRam = hackThreads * hackRam + growThreads * growRam + (weakenHackThreads + weakenGrowThreads) * weakenRam;
+    return { hackThreads, growThreads, weakenHackThreads, weakenGrowThreads, actualSteal, batchRam, weakenTime: ns.formulas.hacking.weakenTime(server, player) };
   }
 
   function launchBatch(target, batch, id) {
