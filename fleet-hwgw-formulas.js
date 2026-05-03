@@ -57,14 +57,14 @@ export async function main(ns) {
   ns.tprint(`Formula fleet HWGW: ${targets.join(", ")}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms, batchLimit=${batchLimit}, targetLimit=${targetLimit}`);
 
   let batchId = 0;
-  const targetState = new Map(targets.map((target) => [target, { doneTimes: [], nextLaunch: 0 }]));
+  const targetState = new Map(targets.map((target) => [target, newTargetState()]));
   let nextTargetRefresh = Date.now() + targetRefreshMs;
 
   while (true) {
     await refreshWorkers();
     if (flags.all && Date.now() >= nextTargetRefresh) {
       targets = chooseTargets();
-      for (const target of targets) if (!targetState.has(target)) targetState.set(target, { doneTimes: [], nextLaunch: 0 });
+      for (const target of targets) if (!targetState.has(target)) targetState.set(target, newTargetState());
       const activeTargets = new Set(targets);
       for (const [target, state] of targetState) {
         state.doneTimes = state.doneTimes.filter((time) => time > Date.now());
@@ -78,16 +78,23 @@ export async function main(ns) {
 
     let launchedAny = false;
     for (const target of targets.sort((a, b) => scoreTarget(b) - scoreTarget(a))) {
-      const state = targetState.get(target) ?? { doneTimes: [], nextLaunch: 0 };
+      const state = targetState.get(target) ?? newTargetState();
       targetState.set(target, state);
-      state.doneTimes = state.doneTimes.filter((time) => time > Date.now());
-      if (Date.now() < state.nextLaunch) continue;
+      const now = Date.now();
+      state.doneTimes = state.doneTimes.filter((time) => time > now);
+      if (now < state.nextLaunch) continue;
 
       if (!isReady(target)) {
-        if (launchPrep(target, `prep-${batchId++}`)) launchedAny = true;
+        if (now < state.prepDoneTime) continue;
+        const prepDoneTime = estimatePrepDoneTime(target);
+        if (launchPrep(target, `prep-${batchId++}`)) {
+          launchedAny = true;
+          state.prepDoneTime = prepDoneTime;
+        }
         state.nextLaunch = Date.now() + spacing * 4;
         continue;
       }
+      state.prepDoneTime = 0;
 
       if (totalInFlight() >= batchLimit) break;
       const batch = planBatch(target);
@@ -101,6 +108,10 @@ export async function main(ns) {
     }
 
     await ns.sleep(launchedAny ? spacing : 500);
+  }
+
+  function newTargetState() {
+    return { doneTimes: [], nextLaunch: 0, prepDoneTime: 0 };
   }
 
   function chooseTargets() {
@@ -165,6 +176,14 @@ export async function main(ns) {
       { script: hackScript, threads: batch.hackThreads, delay: hackDelay, ram: hackRam },
     ];
     return launchJobs(target, jobs, id);
+  }
+
+  function estimatePrepDoneTime(target) {
+    const server = ns.getServer(target);
+    const prepTime = server.hackDifficulty > server.minDifficulty + maxSecDrift
+      ? ns.getWeakenTime(target)
+      : ns.getWeakenTime(target) + spacing;
+    return Date.now() + prepTime + spacing;
   }
 
   function launchPrep(target, id) {
