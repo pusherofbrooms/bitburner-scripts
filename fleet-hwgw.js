@@ -42,15 +42,18 @@ export async function main(ns) {
   ns.tprint(`Fleet HWGW targeting ${target}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms`);
 
   let batchId = 0;
+  let nextBatchDone = 0;
   while (true) {
     await refreshWorkers();
 
-    if (ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target) + 1) {
+    const batchInFlight = Date.now() < nextBatchDone + spacing;
+
+    if (!batchInFlight && ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target) + 1) {
       await prepWeaken();
       continue;
     }
 
-    if (ns.getServerMoneyAvailable(target) < ns.getServerMaxMoney(target) * 0.95) {
+    if (!batchInFlight && ns.getServerMoneyAvailable(target) < ns.getServerMaxMoney(target) * 0.95) {
       await prepGrow();
       continue;
     }
@@ -62,6 +65,7 @@ export async function main(ns) {
       continue;
     }
 
+    nextBatchDone = Math.max(nextBatchDone, Date.now() + ns.getWeakenTime(target) + spacing * 4);
     await ns.sleep(Math.max(spacing * 4, ns.getWeakenTime(target) / batchLimit));
   }
 
