@@ -2,15 +2,15 @@
 export async function main(ns) {
   const flags = ns.flags([
     ["steal", 0.1],
-    ["spacing", 100],
+    ["spacing", 150],
     ["reserve", 32],
-    ["batchLimit", 50],
+    ["batchLimit", 25],
     ["help", false],
   ]);
 
   const target = flags._[0];
   if (flags.help || !target) {
-    ns.tprint("Usage: run fleet-hwgw.js TARGET [--steal 0.1] [--spacing 100] [--reserve 32] [--batchLimit 50]");
+    ns.tprint("Usage: run fleet-hwgw.js TARGET [--steal 0.1] [--spacing 150] [--reserve 32] [--batchLimit 25]");
     return;
   }
 
@@ -47,14 +47,24 @@ export async function main(ns) {
     await refreshWorkers();
 
     const batchInFlight = Date.now() < nextBatchDone + spacing;
+    const security = ns.getServerSecurityLevel(target);
+    const minSecurity = ns.getServerMinSecurityLevel(target);
+    const money = ns.getServerMoneyAvailable(target);
+    const maxMoney = ns.getServerMaxMoney(target);
 
-    if (!batchInFlight && ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target) + 1) {
+    if (!batchInFlight && security > minSecurity + 1) {
       await prepWeaken();
       continue;
     }
 
-    if (!batchInFlight && ns.getServerMoneyAvailable(target) < ns.getServerMaxMoney(target) * 0.95) {
+    if (!batchInFlight && money < maxMoney * 0.95) {
       await prepGrow();
+      continue;
+    }
+
+    if (security > minSecurity + 2 || money < maxMoney * Math.max(0.75, 1 - stealFraction * 1.5)) {
+      ns.print("pausing new batches: target drifted from expected state");
+      await ns.sleep(spacing * 4);
       continue;
     }
 
@@ -137,10 +147,10 @@ export async function main(ns) {
 
     function makeBatchJobs(b) {
       return [
-        { script: hackScript, threads: b.hackThreads, delay: hackDelay, ram: hackRam },
         { script: weakenScript, threads: b.weakenHackThreads, delay: weaken1Delay, ram: weakenRam },
         { script: growScript, threads: b.growThreads, delay: growDelay, ram: growRam },
         { script: weakenScript, threads: b.weakenGrowThreads, delay: weaken2Delay, ram: weakenRam },
+        { script: hackScript, threads: b.hackThreads, delay: hackDelay, ram: hackRam },
       ];
     }
   }
@@ -225,12 +235,15 @@ export async function main(ns) {
       }
     }
 
+    const pids = [];
     for (const job of allocations) {
       const pid = ns.exec(job.script, job.host, job.threads, target, job.delay, id);
       if (pid === 0) {
-        ns.print(`WARN: failed to exec ${job.script} x${job.threads} on ${job.host}`);
+        ns.print(`WARN: failed to exec ${job.script} x${job.threads} on ${job.host}; killing partial batch`);
+        for (const launched of pids) ns.kill(launched.pid, launched.host);
         return false;
       }
+      pids.push({ pid, host: job.host });
     }
 
     ns.print(`launched ${id}: ${allocations.length} jobs`);
