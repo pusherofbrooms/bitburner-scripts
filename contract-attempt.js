@@ -1,13 +1,13 @@
 /** @param {NS} ns **/
 export async function main(ns) {
     if (ns.args.length < 3 || ns.args.includes("--help") || ns.args.includes("-h")) {
-        ns.tprint("Usage: run contract-attempt.js <answer> <filename> <host>");
+        ns.tprint("Usage: run contract-attempt.js <answer> <host> <filename>");
         ns.tprint("Answer may be JSON, e.g. '[1,2,3]', '42', 'true', or a plain string.");
         return;
     }
 
-    const host = String(ns.args[ns.args.length - 1]);
-    const filename = String(ns.args[ns.args.length - 2]);
+    const host = String(ns.args[ns.args.length - 2]);
+    const filename = String(ns.args[ns.args.length - 1]);
     const rawAnswer = ns.args.slice(0, -2).join(" ");
     const answer = parseAnswer(rawAnswer);
 
