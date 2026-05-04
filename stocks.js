@@ -161,21 +161,21 @@ export async function main(ns) {
   function buyBestPositions(data) {
     const currentPositions = data.filter((s) => s.longShares > 0 || s.shortShares > 0).length;
     let slots = Math.max(0, maxPositions - currentPositions);
-    if (slots <= 0) return;
 
     const candidates = [];
     for (const stock of data) {
-      if (stock.longShares === 0 && stock.shortShares === 0 && stock.forecast >= buyThreshold) {
-        candidates.push({ ...stock, position: "L", score: stock.longScore });
+      const hasPosition = stock.longShares > 0 || stock.shortShares > 0;
+      if (stock.shortShares === 0 && stock.forecast >= buyThreshold) {
+        candidates.push({ ...stock, position: "L", score: stock.longScore, isNewPosition: !hasPosition });
       }
-      if (allowShorts && stock.longShares === 0 && stock.shortShares === 0 && stock.forecast <= 1 - buyThreshold) {
-        candidates.push({ ...stock, position: "S", score: stock.shortScore });
+      if (allowShorts && stock.longShares === 0 && stock.forecast <= 1 - buyThreshold) {
+        candidates.push({ ...stock, position: "S", score: stock.shortScore, isNewPosition: !hasPosition });
       }
     }
     candidates.sort((a, b) => b.score - a.score);
 
     for (const stock of candidates) {
-      if (slots <= 0) break;
+      if (stock.isNewPosition && slots <= 0) continue;
       if (stock.score <= 0) continue;
 
       const money = ns.getServerMoneyAvailable("home");
@@ -194,8 +194,10 @@ export async function main(ns) {
         ? ns.stock.buyStock(stock.sym, sharesByCost)
         : ns.stock.buyShort(stock.sym, sharesByCost);
       if (boughtAt > 0) {
-        ns.print(`BUY ${stock.position} ${stock.sym} x${sharesByCost} forecast=${stock.forecast.toFixed(3)} score=${stock.score.toExponential(2)}`);
-        slots--;
+        ns.print(`BUY ${stock.position} ${stock.sym} x${sharesByCost} forecast=${stock.forecast.toFixed(3)} score=${stock.score.toExponential(2)}${stock.isNewPosition ? "" : " add"}`);
+        if (stock.isNewPosition) slots--;
+        stock.longShares += stock.position === "L" ? sharesByCost : 0;
+        stock.shortShares += stock.position === "S" ? sharesByCost : 0;
       }
     }
   }
