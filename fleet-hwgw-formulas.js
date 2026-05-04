@@ -56,6 +56,7 @@ export async function main(ns) {
 
   ns.tprint(`Formula fleet HWGW: ${targets.join(", ")}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms, batchLimit=${configuredBatchLimit || "auto"}, targetLimit=${targetLimit}`);
 
+  const copiedHosts = new Set();
   let batchId = 0;
   const targetState = new Map(targets.map((target) => [target, newTargetState()]));
   let nextTargetRefresh = Date.now() + targetRefreshMs;
@@ -169,13 +170,14 @@ export async function main(ns) {
     const server = minServer(target);
     const player = ns.getPlayer();
     const weakenTime = ns.formulas.hacking.weakenTime(server, player);
-    const hackDelay = Math.max(0, weakenTime - ns.formulas.hacking.hackTime(server, player));
-    const growDelay = Math.max(0, weakenTime - ns.formulas.hacking.growTime(server, player) + spacing * 2);
+    const hackTime = ns.formulas.hacking.hackTime(server, player);
+    const growTime = ns.formulas.hacking.growTime(server, player);
+    const batchStart = Date.now() + offset;
     const jobs = [
-      { script: weakenScript, threads: batch.weakenHackThreads, delay: offset + spacing, ram: weakenRam },
-      { script: growScript, threads: batch.growThreads, delay: offset + growDelay, ram: growRam },
-      { script: weakenScript, threads: batch.weakenGrowThreads, delay: offset + spacing * 3, ram: weakenRam },
-      { script: hackScript, threads: batch.hackThreads, delay: offset + hackDelay, ram: hackRam },
+      { script: hackScript, threads: batch.hackThreads, endTime: batchStart + weakenTime, duration: hackTime, ram: hackRam },
+      { script: weakenScript, threads: batch.weakenHackThreads, endTime: batchStart + weakenTime + spacing, duration: weakenTime, ram: weakenRam },
+      { script: growScript, threads: batch.growThreads, endTime: batchStart + weakenTime + spacing * 2, duration: growTime, ram: growRam },
+      { script: weakenScript, threads: batch.weakenGrowThreads, endTime: batchStart + weakenTime + spacing * 3, duration: weakenTime, ram: weakenRam },
     ];
     return launchJobs(target, jobs, id);
   }
@@ -240,7 +242,10 @@ export async function main(ns) {
   }
 
   async function refreshWorkers() {
-    for (const { host } of getWorkers()) if (host !== "home") await ns.scp(scripts, host, "home");
+    for (const { host } of getWorkers()) {
+      if (host === "home" || copiedHosts.has(host)) continue;
+      if (await ns.scp(scripts, host, "home")) copiedHosts.add(host);
+    }
   }
 
   function launchJobs(target, jobs, id) {
@@ -261,7 +266,8 @@ export async function main(ns) {
 
     const pids = [];
     for (const job of allocations) {
-      const pid = ns.exec(job.script, job.host, job.threads, job.target, job.delay, id);
+      const delay = getDelay(job);
+      const pid = ns.exec(job.script, job.host, job.threads, job.target, delay, id);
       if (pid === 0) {
         for (const launched of pids) ns.kill(launched.pid, launched.host);
         return false;
@@ -270,5 +276,13 @@ export async function main(ns) {
     }
     ns.print(`launched ${id} ${target}: ${allocations.length} jobs`);
     return true;
+  }
+
+  function getDelay(job) {
+    if (job.endTime === undefined || job.duration === undefined) return job.delay ?? 0;
+    const delay = Math.max(0, job.endTime - Date.now() - job.duration);
+    const lateBy = Date.now() + delay + job.duration - job.endTime;
+    if (lateBy > spacing) ns.print(`WARN: ${job.script} ${job.target} launch is ${ns.format.number(lateBy, 1)}ms late`);
+    return delay;
   }
 }
