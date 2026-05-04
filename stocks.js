@@ -3,11 +3,11 @@ export async function main(ns) {
   const flags = ns.flags([
     ["reserve", 25e6],
     ["minTrade", 5e6],
-    ["history", 45],
-    ["minHistory", 20],
+    ["history", 70],
+    ["minHistory", 40],
     ["buy", 0.58],
     ["sell", 0.52],
-    ["maxPositions", 6],
+    ["maxPositions", 10],
     ["cashFrac", 0.75],
     ["shorts", false],
     ["auto4s", true],
@@ -16,7 +16,8 @@ export async function main(ns) {
   ]);
 
   if (flags.help) {
-    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 45] [--minHistory 20] [--buy 0.58] [--sell 0.52] [--maxPositions 6] [--cashFrac 0.75] [--shorts false] [--auto4s true] [--liquidate false]");
+    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy 0.58] [--sell 0.52] [--maxPositions 10] [--cashFrac 0.75] [--shorts false] [--auto4s true] [--liquidate false]");
+    ns.tprint("Note: --maxPositions only caps distinct positions before 4S data. After 4S, the script may use all symbols.");
     return;
   }
 
@@ -56,7 +57,7 @@ export async function main(ns) {
     const data = symbols.map((sym) => analyze(sym, has4s)).filter(Boolean);
 
     sellWeakPositions(data);
-    buyBestPositions(data);
+    buyBestPositions(data, has4s);
     logStatus(data, has4s);
   }
 
@@ -158,9 +159,10 @@ export async function main(ns) {
     }
   }
 
-  function buyBestPositions(data) {
+  function buyBestPositions(data, has4s) {
+    const effectiveMaxPositions = has4s ? symbols.length : maxPositions;
     const currentPositions = data.filter((s) => s.longShares > 0 || s.shortShares > 0).length;
-    let slots = Math.max(0, maxPositions - currentPositions);
+    let slots = Math.max(0, effectiveMaxPositions - currentPositions);
 
     const candidates = [];
     for (const stock of data) {
@@ -233,7 +235,7 @@ export async function main(ns) {
     const best = [...data].sort((a, b) => Math.max(b.longScore, b.shortScore) - Math.max(a.longScore, a.shortScore)).slice(0, 5);
 
     ns.clearLog();
-    ns.print(`mode=${has4s ? "4S" : "history"} cash=${ns.format.number(ns.getServerMoneyAvailable("home"))} positions=${positions.length}/${maxPositions}`);
+    ns.print(`mode=${has4s ? "4S" : "history"} cash=${ns.format.number(ns.getServerMoneyAvailable("home"))} positions=${positions.length}/${has4s ? symbols.length : maxPositions}`);
     ns.print(`longValue=${ns.format.number(longValue)} shortPnLValue=${ns.format.number(shortValue)}`);
     ns.print("best:");
     for (const s of best) {
