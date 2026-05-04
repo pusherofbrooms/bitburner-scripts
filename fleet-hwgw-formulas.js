@@ -69,7 +69,7 @@ export async function main(ns) {
       const activeTargets = new Set(targets);
       for (const [target, state] of targetState) {
         state.doneTimes = state.doneTimes.filter((time) => time > Date.now());
-        if (!activeTargets.has(target) && state.doneTimes.length === 0) targetState.delete(target);
+        if (!activeTargets.has(target) && state.doneTimes.length === 0 && state.prepDoneTime <= Date.now()) targetState.delete(target);
       }
       nextTargetRefresh = Date.now() + targetRefreshMs;
       ns.print(`refreshed targets: ${targets.join(", ")}`);
@@ -86,6 +86,13 @@ export async function main(ns) {
       if (now < state.nextLaunch) continue;
 
       if (!isReady(target)) {
+        // A healthy HWGW pipeline makes the live server briefly look "unready"
+        // between hack->grow and hack/grow->weaken completions. Do not launch
+        // prep into those transient dips; wait for the pipeline to drain first.
+        if (state.doneTimes.length > 0) {
+          state.nextLaunch = Date.now() + spacing;
+          continue;
+        }
         if (now < state.prepDoneTime) continue;
         const prepDoneTime = estimatePrepDoneTime(target);
         if (launchPrep(target, `prep-${batchId++}`)) {
@@ -159,8 +166,11 @@ export async function main(ns) {
 
     const afterHack = { ...server, moneyAvailable: Math.max(1, server.moneyMax * (1 - actualSteal)) };
     const growThreads = Math.max(1, Math.ceil(ns.formulas.hacking.growThreads(afterHack, player, server.moneyMax)));
-    const weakenHackThreads = Math.max(1, Math.ceil(ns.hackAnalyzeSecurity(hackThreads, target) / ns.formulas.hacking.weakenEffect(1)));
-    const weakenGrowThreads = Math.max(1, Math.ceil(ns.growthAnalyzeSecurity(growThreads, target) / ns.formulas.hacking.weakenEffect(1)));
+    const weakenHackThreads = Math.max(1, Math.ceil(ns.hackAnalyzeSecurity(hackThreads) / ns.formulas.hacking.weakenEffect(1)));
+    // Do not pass host here: growthAnalyzeSecurity(threads, host) caps the security
+    // estimate to the target's *current* growth need. In an HWGW batch the grow
+    // runs after a future hack, so using the live host underestimates grow sec.
+    const weakenGrowThreads = Math.max(1, Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.formulas.hacking.weakenEffect(1)));
 
     const batchRam = hackThreads * hackRam + growThreads * growRam + (weakenHackThreads + weakenGrowThreads) * weakenRam;
     return { hackThreads, growThreads, weakenHackThreads, weakenGrowThreads, actualSteal, batchRam, weakenTime: ns.formulas.hacking.weakenTime(server, player) };
@@ -198,7 +208,7 @@ export async function main(ns) {
     }
     const growServer = { ...server, moneyAvailable: Math.max(1, server.moneyAvailable) };
     const growThreads = Math.ceil(ns.formulas.hacking.growThreads(growServer, ns.getPlayer(), server.moneyMax));
-    const weakenThreads = Math.ceil(ns.growthAnalyzeSecurity(growThreads, target) / ns.formulas.hacking.weakenEffect(1));
+    const weakenThreads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.formulas.hacking.weakenEffect(1));
     const growDelay = Math.max(0, ns.getWeakenTime(target) - ns.getGrowTime(target));
     return launchJobs(target, [
       { script: growScript, threads: growThreads, delay: growDelay, ram: growRam },
