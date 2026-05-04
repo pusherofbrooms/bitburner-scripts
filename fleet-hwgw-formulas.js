@@ -2,9 +2,9 @@
 export async function main(ns) {
   const flags = ns.flags([
     ["steal", 0.1],
-    ["spacing", 80],
+    ["spacing", 200],
     ["reserve", 32],
-    ["batchLimit", 80],
+    ["batchLimit", 0],
     ["targetLimit", 8],
     ["refreshTargets", 60000],
     ["minMoney", 0.98],
@@ -14,7 +14,7 @@ export async function main(ns) {
   ]);
 
   if (flags.help || (!flags.all && flags._.length === 0)) {
-    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--targetLimit 8] [--refreshTargets 60000] [--steal 0.1] [--spacing 80] [--reserve 32] [--batchLimit 80]");
+    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--targetLimit 8] [--refreshTargets 60000] [--steal 0.1] [--spacing 200] [--reserve 32] [--batchLimit 0]\n  --batchLimit 0 auto-scales from usable RAM and planned batch size");
     return;
   }
   if (!ns.fileExists("Formulas.exe", "home")) {
@@ -36,7 +36,7 @@ export async function main(ns) {
   const spacing = Math.max(20, Number(flags.spacing));
   const reserveHomeRam = Number(flags.reserve);
   const stealFraction = Math.max(0.001, Math.min(0.9, Number(flags.steal)));
-  const batchLimit = Math.max(1, Number(flags.batchLimit));
+  const configuredBatchLimit = Math.max(0, Math.floor(Number(flags.batchLimit)));
   const targetLimit = Math.max(1, Math.floor(Number(flags.targetLimit)));
   const targetRefreshMs = Math.max(5000, Number(flags.refreshTargets));
   const minMoneyRatio = Math.max(0.5, Math.min(1, Number(flags.minMoney)));
@@ -54,7 +54,7 @@ export async function main(ns) {
     return;
   }
 
-  ns.tprint(`Formula fleet HWGW: ${targets.join(", ")}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms, batchLimit=${batchLimit}, targetLimit=${targetLimit}`);
+  ns.tprint(`Formula fleet HWGW: ${targets.join(", ")}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms, batchLimit=${configuredBatchLimit || "auto"}, targetLimit=${targetLimit}`);
 
   let batchId = 0;
   const targetState = new Map(targets.map((target) => [target, newTargetState()]));
@@ -96,15 +96,17 @@ export async function main(ns) {
       }
       state.prepDoneTime = 0;
 
-      if (totalInFlight() >= batchLimit) break;
       const batch = planBatch(target);
       if (!batch) continue;
-      const doneTime = Date.now() + batch.weakenTime + spacing * 4;
-      if (launchBatch(target, batch, batchId++)) {
+      const batchLimit = getBatchLimit(batch);
+      while (totalInFlight() < batchLimit && state.doneTimes.length < maxBatchesForTarget(batch)) {
+        const batchOffset = state.doneTimes.length * spacing * 4;
+        const doneTime = Date.now() + batchOffset + batch.weakenTime + spacing * 4;
+        if (!launchBatch(target, batch, batchId++, batchOffset)) break;
         launchedAny = true;
         state.doneTimes.push(doneTime);
-        state.nextLaunch = Date.now() + spacing * 4;
       }
+      state.nextLaunch = Date.now() + (launchedAny ? spacing : spacing * 4);
     }
 
     await ns.sleep(launchedAny ? spacing : 500);
@@ -163,17 +165,17 @@ export async function main(ns) {
     return { hackThreads, growThreads, weakenHackThreads, weakenGrowThreads, actualSteal, batchRam, weakenTime: ns.formulas.hacking.weakenTime(server, player) };
   }
 
-  function launchBatch(target, batch, id) {
+  function launchBatch(target, batch, id, offset = 0) {
     const server = minServer(target);
     const player = ns.getPlayer();
     const weakenTime = ns.formulas.hacking.weakenTime(server, player);
     const hackDelay = Math.max(0, weakenTime - ns.formulas.hacking.hackTime(server, player));
     const growDelay = Math.max(0, weakenTime - ns.formulas.hacking.growTime(server, player) + spacing * 2);
     const jobs = [
-      { script: weakenScript, threads: batch.weakenHackThreads, delay: spacing, ram: weakenRam },
-      { script: growScript, threads: batch.growThreads, delay: growDelay, ram: growRam },
-      { script: weakenScript, threads: batch.weakenGrowThreads, delay: spacing * 3, ram: weakenRam },
-      { script: hackScript, threads: batch.hackThreads, delay: hackDelay, ram: hackRam },
+      { script: weakenScript, threads: batch.weakenHackThreads, delay: offset + spacing, ram: weakenRam },
+      { script: growScript, threads: batch.growThreads, delay: offset + growDelay, ram: growRam },
+      { script: weakenScript, threads: batch.weakenGrowThreads, delay: offset + spacing * 3, ram: weakenRam },
+      { script: hackScript, threads: batch.hackThreads, delay: offset + hackDelay, ram: hackRam },
     ];
     return launchJobs(target, jobs, id);
   }
@@ -205,6 +207,17 @@ export async function main(ns) {
   function totalInFlight() {
     const now = Date.now();
     return [...targetState.values()].reduce((sum, state) => sum + state.doneTimes.filter((time) => time > now).length, 0);
+  }
+
+  function getBatchLimit(sampleBatch) {
+    if (configuredBatchLimit > 0) return configuredBatchLimit;
+    const usableRam = getWorkers().reduce((sum, worker) => sum + worker.freeRam, 0);
+    const ramLimited = Math.floor(usableRam / Math.max(1, sampleBatch.batchRam));
+    return Math.max(1, totalInFlight() + ramLimited);
+  }
+
+  function maxBatchesForTarget(batch) {
+    return Math.max(1, Math.floor(batch.weakenTime / (spacing * 4)));
   }
 
   function getAllServers(start = "home", visited = new Set()) {
