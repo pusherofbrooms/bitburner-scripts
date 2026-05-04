@@ -7,14 +7,14 @@ export async function main(ns) {
     ["batchLimit", 0],
     ["targetLimit", 8],
     ["refreshTargets", 60000],
-    ["minMoney", 0.98],
-    ["maxSec", 0.5],
+    ["minMoney", 0.995],
+    ["maxSec", 0.05],
     ["all", false],
     ["help", false],
   ]);
 
   if (flags.help || (!flags.all && flags._.length === 0)) {
-    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--targetLimit 8] [--refreshTargets 60000] [--steal 0.1] [--spacing 200] [--reserve 32] [--batchLimit 0]\n  --batchLimit 0 auto-scales from usable RAM and planned batch size");
+    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--targetLimit 8] [--refreshTargets 60000] [--steal 0.1] [--spacing 200] [--reserve 32] [--batchLimit 0] [--minMoney 0.995] [--maxSec 0.05]\n  --batchLimit 0 auto-scales from usable RAM and planned batch size\n  --minMoney/--maxSec control how fully prepped a target must be before launching batches");
     return;
   }
   if (!ns.fileExists("Formulas.exe", "home")) {
@@ -40,7 +40,7 @@ export async function main(ns) {
   const targetLimit = Math.max(1, Math.floor(Number(flags.targetLimit)));
   const targetRefreshMs = Math.max(5000, Number(flags.refreshTargets));
   const minMoneyRatio = Math.max(0.5, Math.min(1, Number(flags.minMoney)));
-  const maxSecDrift = Math.max(0.05, Number(flags.maxSec));
+  const maxSecDrift = Math.max(0, Number(flags.maxSec));
   const hackRam = ns.getScriptRam(hackScript);
   const growRam = ns.getScriptRam(growScript);
   const weakenRam = ns.getScriptRam(weakenScript);

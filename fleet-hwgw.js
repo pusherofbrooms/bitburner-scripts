@@ -41,10 +41,12 @@ export async function main(ns) {
   ns.disableLog("ALL");
   ns.tprint(`Fleet HWGW targeting ${target}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms`);
 
+  const copiedHosts = new Set();
+
   let batchId = 0;
   let nextBatchDone = 0;
   while (true) {
-    await refreshWorkers();
+    await copyScriptsToWorkers();
 
     const batchInFlight = Date.now() < nextBatchDone + spacing;
     const security = ns.getServerSecurityLevel(target);
@@ -101,23 +103,39 @@ export async function main(ns) {
     return Math.max(0, ns.getServerMaxRam(host) - ns.getServerUsedRam(host) - reserve);
   }
 
-  async function refreshWorkers() {
+  async function copyScriptsToWorkers() {
     for (const { host } of getWorkers()) {
-      if (host !== "home") await ns.scp(scripts, host, "home");
+      if (host === "home" || copiedHosts.has(host)) continue;
+      if (await ns.scp(scripts, host, "home")) copiedHosts.add(host);
     }
   }
 
   function planBatch(maxHackThreads = undefined) {
-    const maxMoney = ns.getServerMaxMoney(target);
     const hackPercent = ns.hackAnalyze(target);
-    const desiredHackThreads = Math.max(1, Math.floor(stealFraction / hackPercent));
-    const hackThreads = Math.max(1, Math.min(desiredHackThreads, maxHackThreads ?? desiredHackThreads));
-    const actualSteal = Math.min(0.9, hackThreads * hackPercent);
-    const growMultiplier = 1 / Math.max(0.01, 1 - actualSteal);
-    const growThreads = Math.max(1, Math.ceil(ns.growthAnalyze(target, growMultiplier)));
+    if (hackPercent <= 0) return { hackThreads: 1, growThreads: 1, weakenHackThreads: 1, weakenGrowThreads: 1 };
+
+    const hackChance = ns.hackAnalyzeChance(target);
+    const effectiveSteal = Math.max(0.005, Math.min(stealFraction, stealFraction * Math.max(0.25, hackChance)));
+    const desiredHackThreads = Math.max(1, Math.floor(effectiveSteal / hackPercent));
+    const maxThreads = Math.max(1, Math.min(desiredHackThreads, maxHackThreads ?? desiredHackThreads));
+    let hackThreads = maxThreads;
+    let growThreads = getGrowThreads(hackThreads, hackPercent);
+    const maxGrowToHackRatio = 8;
+
+    while (hackThreads > 1 && growThreads > hackThreads * maxGrowToHackRatio) {
+      hackThreads--;
+      growThreads = getGrowThreads(hackThreads, hackPercent);
+    }
+
     const weakenHackThreads = Math.max(1, Math.ceil(ns.hackAnalyzeSecurity(hackThreads, target) / ns.weakenAnalyze(1)));
     const weakenGrowThreads = Math.max(1, Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.weakenAnalyze(1)));
-    return { maxMoney, hackThreads, growThreads, weakenHackThreads, weakenGrowThreads };
+    return { hackThreads, growThreads, weakenHackThreads, weakenGrowThreads };
+  }
+
+  function getGrowThreads(hackThreads, hackPercent) {
+    const actualSteal = Math.min(0.9, hackThreads * hackPercent);
+    const growMultiplier = 1 / Math.max(0.01, 1 - actualSteal);
+    return Math.max(1, Math.ceil(ns.growthAnalyze(target, growMultiplier)));
   }
 
   function launchBatch(batch, id) {
