@@ -14,7 +14,12 @@
  * @param {NS} ns
  */
 export async function main(ns) {
-  const opponent = String(ns.args[0] ?? "Netburners");
+  if (ns.args.length < 1) {
+    printUsage(ns);
+    return;
+  }
+
+  const opponent = String(ns.args[0]);
   const size = Number(ns.args[1] ?? 5);
   const games = Number(ns.args[2] ?? 1);
 
@@ -321,3 +326,25 @@ function neighborsFromBoard(board, x, y) {
 function coord(x, y) {
   return `${String.fromCharCode(65 + x)}${y + 1}`;
 }
+
+function printUsage(ns) {
+  ns.tprintf("Usage: run go-one-ply.js <opponent> [boardSize] [games]");
+  ns.tprintf("  boardSize: 5, 7, 9, or 13. Default: 5");
+  ns.tprintf("  games: number of games to play. Default: 1. Use 0 for forever.");
+  ns.tprintf("Playable opponents:");
+  for (const opponent of OPPONENTS) ns.tprintf(`  - ${opponent}`);
+  ns.tprintf("Examples:");
+  ns.tprintf('  run go-one-ply.js "Netburners" 5 10');
+  ns.tprintf('  run go-one-ply.js "Daedalus" 7 0');
+}
+
+const OPPONENTS = [
+  "Netburners",
+  "Slum Snakes",
+  "The Black Hand",
+  "Tetrads",
+  "Daedalus",
+  "Illuminati",
+  "????????????",
+  "No AI",
+];
