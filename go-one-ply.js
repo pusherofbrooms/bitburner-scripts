@@ -81,7 +81,7 @@ export async function main(ns) {
 
     const state = ns.go.getGameState();
     const stats = ns.go.analysis.getStats()[opponent];
-    ns.tprintf(
+    ns.printf(
       "IPvGO %s complete: black=%s white=%s streak=%s wins=%s losses=%s bonus=%s%s",
       opponent,
       state.blackScore,
