@@ -25,7 +25,9 @@ export async function main(ns) {
 
   ns.disableLog("ALL");
   ns.clearLog();
-  ns.tail();
+  ns.ui.openTail();
+  ns.ui.setTailTitle(`IPvGO ${opponent} ${size}x${size}`);
+  ns.ui.resizeTail(900, 500);
 
   let played = 0;
   while (games === 0 || played < games) {
