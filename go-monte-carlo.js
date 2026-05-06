@@ -2,7 +2,7 @@
  * IPvGO Monte Carlo playout player.
  *
  * Usage:
- *   run go-monte-carlo.js <opponent> [boardSize] [games] [playoutsPerMove]
+ *   run go-monte-carlo.js <opponent> [boardSize] [games] [playoutsPerMove] [verbose]
  *   run go-monte-carlo.js "Slum Snakes" 5 10 40
  *
  * Args:
@@ -11,6 +11,7 @@
  *   1: board size: 5, 7, 9, or 13. Default 5.
  *   2: number of games. Default 1. Use 0 for forever.
  *   3: random playouts per candidate move. Default 32.
+ *   4: verbose move logging. Default false. Use true/1/verbose.
  *
  * This intentionally uses a lightweight approximate Go simulator. It ignores
  * superko beyond normal in-game move validation for the real current move, so it
@@ -28,6 +29,7 @@ export async function main(ns) {
   const size = Number(ns.args[1] ?? 5);
   const games = Number(ns.args[2] ?? 1);
   const playouts = Math.max(1, Math.floor(Number(ns.args[3] ?? 32)));
+  const verbose = parseVerbose(ns.args[4]);
 
   if (![5, 7, 9, 13].includes(size)) {
     ns.tprintf("ERROR: board size must be 5, 7, 9, or 13; got %s", size);
@@ -67,13 +69,15 @@ export async function main(ns) {
 
       if (!move) {
         const result = await ns.go.passTurn();
-        ns.print(`Pass -> ${result.type}`);
+        if (verbose) ns.print(`Pass -> ${result.type}`);
       } else {
         turns++;
         const result = await ns.go.makeMove(move.x, move.y);
-        ns.print(
-          `Move ${turns}: ${coord(move.x, move.y)} win=${formatPct(move.winRate)} margin=${move.avgMargin.toFixed(2)} sims=${move.playouts} -> ${result.type}`,
-        );
+        if (verbose) {
+          ns.print(
+            `Move ${turns}: ${coord(move.x, move.y)} win=${formatPct(move.winRate)} margin=${move.avgMargin.toFixed(2)} sims=${move.playouts} -> ${result.type}`,
+          );
+        }
       }
 
       if (turns > size * size * 2) {
@@ -350,15 +354,22 @@ function formatPct(n) {
 }
 
 function printUsage(ns) {
-  ns.tprintf("Usage: run go-monte-carlo.js <opponent> [boardSize] [games] [playoutsPerMove]");
+  ns.tprintf("Usage: run go-monte-carlo.js <opponent> [boardSize] [games] [playoutsPerMove] [verbose]");
   ns.tprintf("  boardSize: 5, 7, 9, or 13. Default: 5");
   ns.tprintf("  games: number of games to play. Default: 1. Use 0 for forever.");
   ns.tprintf("  playoutsPerMove: random playouts per legal candidate. Default: 32");
+  ns.tprintf("  verbose: log every move. Default: false. Use true/1/verbose.");
   ns.tprintf("Playable opponents:");
   for (const opponent of OPPONENTS) ns.tprintf(`  - ${opponent}`);
   ns.tprintf("Examples:");
   ns.tprintf('  run go-monte-carlo.js "Slum Snakes" 5 10 40');
-  ns.tprintf('  run go-monte-carlo.js "Daedalus" 7 0 24');
+  ns.tprintf('  run go-monte-carlo.js "Daedalus" 7 0 24 true');
+}
+
+function parseVerbose(value) {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null) return false;
+  return ["1", "true", "yes", "verbose", "v"].includes(String(value).toLowerCase());
 }
 
 const OPPONENTS = [

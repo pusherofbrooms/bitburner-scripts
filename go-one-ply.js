@@ -3,13 +3,14 @@
  *
  * Usage:
  *   run go-one-ply.js "Netburners" 5 10
- *   run go-one-ply.js "Daedalus" 7 1
+ *   run go-one-ply.js "Daedalus" 7 1 true
  *
  * Args:
  *   0: opponent/faction name: Netburners, Slum Snakes, The Black Hand, Tetrads,
  *      Daedalus, Illuminati, ????????????, No AI
  *   1: board size: 5, 7, 9, or 13. Default 5.
  *   2: number of games. Default 1. Use 0 for forever.
+ *   3: verbose move logging. Default false. Use true/1/verbose.
  *
  * @param {NS} ns
  */
@@ -22,6 +23,7 @@ export async function main(ns) {
   const opponent = String(ns.args[0]);
   const size = Number(ns.args[1] ?? 5);
   const games = Number(ns.args[2] ?? 1);
+  const verbose = parseVerbose(ns.args[3]);
 
   if (![5, 7, 9, 13].includes(size)) {
     ns.tprintf("ERROR: board size must be 5, 7, 9, or 13; got %s", size);
@@ -63,12 +65,12 @@ export async function main(ns) {
       if (!move) {
         const result = await ns.go.passTurn();
         passes++;
-        ns.print(`Pass (${result.type})`);
+        if (verbose) ns.print(`Pass (${result.type})`);
       } else {
         const result = await ns.go.makeMove(move.x, move.y);
         turns++;
         passes = 0;
-        ns.print(`Move ${turns}: ${coord(move.x, move.y)} score=${move.score.toFixed(2)} (${move.reason}) -> ${result.type}`);
+        if (verbose) ns.print(`Move ${turns}: ${coord(move.x, move.y)} score=${move.score.toFixed(2)} (${move.reason}) -> ${result.type}`);
       }
 
       // Safety valve: if something goes weird, pass out rather than spin forever.
@@ -328,14 +330,21 @@ function coord(x, y) {
 }
 
 function printUsage(ns) {
-  ns.tprintf("Usage: run go-one-ply.js <opponent> [boardSize] [games]");
+  ns.tprintf("Usage: run go-one-ply.js <opponent> [boardSize] [games] [verbose]");
   ns.tprintf("  boardSize: 5, 7, 9, or 13. Default: 5");
   ns.tprintf("  games: number of games to play. Default: 1. Use 0 for forever.");
+  ns.tprintf("  verbose: log every move. Default: false. Use true/1/verbose.");
   ns.tprintf("Playable opponents:");
   for (const opponent of OPPONENTS) ns.tprintf(`  - ${opponent}`);
   ns.tprintf("Examples:");
   ns.tprintf('  run go-one-ply.js "Netburners" 5 10');
-  ns.tprintf('  run go-one-ply.js "Daedalus" 7 0');
+  ns.tprintf('  run go-one-ply.js "Daedalus" 7 0 true');
+}
+
+function parseVerbose(value) {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null) return false;
+  return ["1", "true", "yes", "verbose", "v"].includes(String(value).toLowerCase());
 }
 
 const OPPONENTS = [
