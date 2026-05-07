@@ -111,8 +111,9 @@ function chooseMove(board, valid) {
       const evalScore = evaluateBoard(sim.board);
       const shape = moveShapeBonus(board, x, y, "X");
       const tactics = tacticalBonus(board, sim, x, y, "X");
-      const score = evalScore + shape + tactics;
-      const reason = `eval ${evalScore.toFixed(1)}, shape ${shape.toFixed(1)}, tactics ${tactics.toFixed(1)}, cap ${sim.captured}`;
+      const strategy = strategicBonus(board, sim, x, y, "X");
+      const score = evalScore + shape + tactics + strategy;
+      const reason = `eval ${evalScore.toFixed(1)}, shape ${shape.toFixed(1)}, tactics ${tactics.toFixed(1)}, strategy ${strategy.toFixed(1)}, cap ${sim.captured}`;
 
       moves.push({ x, y, score, evalScore, reason, captured: sim.captured });
       if (!best || score > best.score) best = moves[moves.length - 1];
@@ -232,13 +233,34 @@ function groupKey(group) {
   return group.map((p) => `${p.x},${p.y}`).sort().join(";");
 }
 
+function strategicBonus(before, sim, x, y, color = "X") {
+  const opponent = color === "X" ? "O" : "X";
+  let bonus = 0;
+
+  // Avoid filling points already safely controlled by us unless there is a concrete tactical reason.
+  const owner = territoryOwner(before, x, y);
+  const adjacent = countAdjacentColors(before, x, y, color, opponent);
+  const defending = isDefendingEndangeredGroup(before, x, y, color);
+  if (owner === color && !sim.captured && !defending) bonus -= 18;
+  else if (owner === opponent && (adjacent.enemy || sim.captured)) bonus += 6;
+
+  bonus += libertyGrowthBonus(before, sim.board, x, y, color, sim.captured);
+  bonus += cornerInfluenceBonus(before, x, y);
+  return bonus;
+}
+
 function moveShapeBonus(board, x, y, color = "X") {
   const n = board.length;
   let bonus = 0;
   const corner = (x === 0 || x === n - 1) && (y === 0 || y === n - 1);
   const edge = x === 0 || y === 0 || x === n - 1 || y === n - 1;
-  if (corner) bonus += 8;
-  else if (edge) bonus += 3;
+  if (n <= 5) {
+    if (corner) bonus += 8;
+    else if (edge) bonus += 3;
+  } else {
+    if (corner) bonus -= 3;
+    else if (edge) bonus -= 1;
+  }
 
   let own = 0, enemy = 0, empty = 0;
   for (const [nx, ny] of neighborsFromBoard(board, x, y)) {
@@ -248,9 +270,87 @@ function moveShapeBonus(board, x, y, color = "X") {
   }
   bonus += own * 4 + enemy * 2 + empty * 0.5;
 
-  // Opening: avoid first-line-only crawling on larger boards, but don't overdo it on 5x5.
+  // Opening: prefer useful interior influence on larger boards instead of first-line crawling.
   if (n >= 7 && !edge) bonus += 1;
   return bonus;
+}
+
+function territoryOwner(board, x, y) {
+  if (board[x]?.[y] !== ".") return null;
+  const region = floodEmpty(board, x, y, Array.from({ length: board.length }, () => Array(board.length).fill(false)));
+  if (region.borderX && !region.borderO) return "X";
+  if (region.borderO && !region.borderX) return "O";
+  return null;
+}
+
+function isDefendingEndangeredGroup(board, x, y, color) {
+  const b = board.map((c) => c.split(""));
+  const seen = new Set();
+  for (const [nx, ny] of neighborsFromBoard(board, x, y)) {
+    if (board[nx][ny] !== color) continue;
+    const group = collectGroup(b, nx, ny);
+    const key = groupKey(group);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (countLibertiesFromBoard(board, group) <= 1) return true;
+  }
+  return false;
+}
+
+function libertyGrowthBonus(before, after, x, y, color, captured) {
+  const beforeArray = before.map((c) => c.split(""));
+  const afterArray = after.map((c) => c.split(""));
+  const adjacentGroups = [];
+  const seen = new Set();
+  for (const [nx, ny] of neighborsFromBoard(before, x, y)) {
+    if (before[nx][ny] !== color) continue;
+    const group = collectGroup(beforeArray, nx, ny);
+    const key = groupKey(group);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    adjacentGroups.push(group);
+  }
+
+  if (!adjacentGroups.length) return 0;
+
+  const oldLibs = new Set();
+  for (const group of adjacentGroups) {
+    for (const p of group) {
+      for (const [lx, ly] of neighborsFromBoard(before, p.x, p.y)) {
+        if (before[lx][ly] === "." && (lx !== x || ly !== y)) oldLibs.add(`${lx},${ly}`);
+      }
+    }
+  }
+
+  const afterGroup = collectGroup(afterArray, x, y);
+  const newLibs = countLibertiesFromBoard(after, afterGroup);
+  const delta = newLibs - oldLibs.size;
+  if (delta > 0) return Math.min(delta, 4) * 2.5;
+  if (delta < 0 && !captured) return Math.max(delta, -3) * 2;
+  return 0;
+}
+
+function cornerInfluenceBonus(board, x, y) {
+  const n = board.length;
+  if (n < 7) return 0;
+  const targets = [
+    { x: 2, y: 2, area: [0, 0, 2, 2] },
+    { x: 2, y: n - 3, area: [0, n - 3, 2, n - 1] },
+    { x: n - 3, y: 2, area: [n - 3, 0, n - 1, 2] },
+    { x: n - 3, y: n - 3, area: [n - 3, n - 3, n - 1, n - 1] },
+  ];
+  const target = targets.find((t) => t.x === x && t.y === y);
+  if (!target) return 0;
+  const [x1, y1, x2, y2] = target.area;
+  let live = 0, stones = 0;
+  for (let ax = x1; ax <= x2; ax++) {
+    for (let ay = y1; ay <= y2; ay++) {
+      if (board[ax]?.[ay] === undefined || board[ax][ay] === "#") continue;
+      live++;
+      if (board[ax][ay] === "X" || board[ax][ay] === "O") stones++;
+    }
+  }
+  return live >= 7 && stones === 0 ? 10 : 0;
 }
 
 function boardScore(board) {
