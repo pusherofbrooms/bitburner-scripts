@@ -43,14 +43,15 @@ async function solveNeighbor(ns, target, opts) {
   const db = readJson(ns, PASSWORD_DB, {});
   if (typeof db[target] === "string") {
     const r = safe(() => ns.dnet.connectToSession(target, db[target]), { success: false });
-    if (r.success) return true;
+    if (r === true || r.success) return true;
+    delete db[target]; writeJson(ns, PASSWORD_DB, db); pushHomeState(ns);
   }
   const candidates = makeCandidates(details);
   ns.print(`${target}: ${details.modelId}, ${details.passwordFormat}/${details.passwordLength}, ${candidates.length} static candidates`);
   for (const secret of unique(candidates)) if (await trySecret(ns, target, secret)) return rememberSecret(ns, target, secret, details);
   const dynamic = await dynamicSolve(ns, target, details, opts);
   if (dynamic != null && await trySecret(ns, target, dynamic)) return rememberSecret(ns, target, dynamic, details);
-  await harvestLogs(ns, target);
+  await harvestLogs(ns, target, details);
   return false;
 }
 
@@ -71,8 +72,9 @@ function makeCandidates(d) {
   if (d.modelId === "PrimeTime 2" && d.data) out.push(String(largestPrimeFactor(Number(d.data))));
   if (d.modelId === "BellaCuore" && d.data && !d.data.includes(",")) out.push(String(romanToInt(d.data)));
   if (d.modelId === "DeskMemo_3.1") out.push(...literalHints(hint));
+  if (d.modelId === "PHP 5.4" && d.data) out.push(...permutations(d.data, 2000));
   out.push(...extractSecretsFromText(hint));
-  return out.filter(x => x != null && String(x).length <= 50).map(String);
+  return out.filter(x => candidateFits(d, x)).map(String);
 }
 
 async function dynamicSolve(ns, target, d, opts) {
@@ -81,6 +83,7 @@ async function dynamicSolve(ns, target, d, opts) {
   if (d.modelId === "Factori-Os") return await solveDivisibility(ns, target);
   if (d.modelId === "NIL" || d.modelId === "RateMyPix.Auth") return await solveExactChars(ns, target, d);
   if (d.modelId === "2G_cellular") return await solveTiming(ns, target, d);
+  if (d.modelId === "DeepGreen") return await solveMastermind(ns, target, d, opts);
   return null;
 }
 
@@ -91,8 +94,9 @@ async function solveHigherLower(ns, target, d, opts, roman) {
     const guess = Math.floor((lo + hi) / 2);
     const fb = await attemptWithFeedback(ns, target, String(guess));
     if (fb.success) return String(guess);
-    if (/Lower|ALTUS NIMIS/i.test(fb.text)) hi = guess - 1;
-    else if (/Higher|PARUM BREVIS/i.test(fb.text)) lo = guess + 1;
+    const feedback = `${fb.data ?? ""} ${fb.message ?? ""} ${fb.text}`;
+    if (/Lower|ALTUS NIMIS/i.test(feedback)) hi = guess - 1;
+    else if (/Higher|PARUM BREVIS/i.test(feedback)) lo = guess + 1;
     else break;
   }
   return null;
@@ -103,7 +107,7 @@ async function solveExactChars(ns, target, d) {
     const guess = pass.slice(0, i) + c + pass.slice(i + 1);
     const fb = await attemptWithFeedback(ns, target, guess);
     if (fb.success) return guess;
-    const yesnt = parseYesnt(fb.text), spice = parseSpice(fb.text);
+    const yesnt = parseYesnt(fb.data ?? fb.text), spice = parseSpice(fb.data ?? fb.text);
     if ((yesnt && yesnt[i] === true) || (spice != null && spice > i)) { pass = guess; break; }
   }
   return pass;
@@ -125,9 +129,23 @@ async function solveDivisibility(ns, target) {
     const probe = n * p; if (!Number.isSafeInteger(probe)) break;
     const fb = await attemptWithFeedback(ns, target, String(probe));
     if (fb.success) return String(probe);
-    if (/IS divisible/.test(fb.text)) n = probe; else break;
+    if (/IS divisible/.test(`${fb.message ?? ""} ${fb.text}`)) n = probe; else break;
   }
   return String(n);
+}
+async function solveMastermind(ns, target, d, opts) {
+  const chars = charset(d);
+  if (chars.length ** d.passwordLength > 20000) return null;
+  let candidates = enumeratePasswords(chars, d.passwordLength, 20000);
+  for (let i = 0; i < opts.maxDynamicAttempts && candidates.length; i++) {
+    const guess = candidates[0];
+    const fb = await attemptWithFeedback(ns, target, guess);
+    if (fb.success) return guess;
+    const mm = parseMastermind(fb.data ?? fb.text);
+    if (!mm) break;
+    candidates = candidates.filter(c => c !== guess && mastermindScore(c, guess)[0] === mm[0] && mastermindScore(c, guess)[1] === mm[1]);
+  }
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 async function trySecret(ns, target, secret) {
@@ -139,12 +157,14 @@ async function attemptWithFeedback(ns, target, secret) {
   const r = await safeAsync(() => ns.dnet.authenticate(target, secret), { success: false });
   if (r.success) return { success: true, text: "" };
   const hb = await safeAsync(() => ns.dnet.heartbleed(target, { peek: true, logsToCapture: 8 }), { logs: [] });
-  const text = (hb.logs || []).join("\n"); recordLogText(ns, target, text); return { success: false, text };
+  const text = (hb.logs || []).join("\n"); recordLogText(ns, target, text);
+  const feedback = parseFeedbackLog(text, secret);
+  return { success: false, text, data: feedback?.data, message: feedback?.message };
 }
-async function harvestLogs(ns, target) {
+async function harvestLogs(ns, target, details) {
   const hb = await safeAsync(() => ns.dnet.heartbleed(target, { peek: true, logsToCapture: 12 }), { logs: [] });
   const text = (hb.logs || []).join("\n"); if (!text) return; recordLogText(ns, target, text);
-  for (const secret of extractSecretsFromText(text)) if (await trySecret(ns, target, secret)) { rememberSecret(ns, target, secret, ns.dnet.getServerAuthDetails(target)); return; }
+  for (const secret of unique(extractLogCandidates(text, details))) if (await trySecret(ns, target, secret)) { rememberSecret(ns, target, secret, ns.dnet.getServerAuthDetails(target)); return; }
 }
 
 async function replicateTo(ns, target, opts) {
@@ -184,6 +204,42 @@ async function ensureHomeFile(ns, file, content) { if (ns.getHostname() === "hom
 function readJson(ns, file, fallback) { try { return JSON.parse(ns.read(file) || JSON.stringify(fallback)); } catch { return fallback; } }
 function writeJson(ns, file, data) { ns.write(file, JSON.stringify(data, null, 2), "w"); }
 function unique(arr) { return [...new Set(arr)]; }
+function enumeratePasswords(chars, len, limit, prefix = "", out = []) { if (out.length >= limit) return out; if (!len) { out.push(prefix); return out; } for (const c of chars) enumeratePasswords(chars, len - 1, limit, prefix + c, out); return out; }
+function permutations(str, limit, prefix = "", out = [], rest = String(str).split("")) { if (out.length >= limit) return out; if (!rest.length) { out.push(prefix); return out; } const seen = new Set(); for (let i = 0; i < rest.length; i++) { if (seen.has(rest[i])) continue; seen.add(rest[i]); permutations(str, limit, prefix + rest[i], out, rest.slice(0, i).concat(rest.slice(i + 1))); } return out; }
+function candidateFits(d, secret) {
+  if (secret == null || String(secret).length > 50) return false;
+  secret = String(secret);
+  if (/[{}"]|passwordAttempted|\bcode\b|\bmessage\b|\bdata\b/.test(secret)) return false;
+  if (d.modelId === "ZeroLogon" && secret === "") return true;
+  if (d.modelId === "Pr0verFl0") return /^■+$/.test(secret) && secret.length >= d.passwordLength;
+  if (secret.length !== d.passwordLength) return false;
+  if (d.passwordFormat === "numeric") return /^\d+$/.test(secret);
+  if (d.passwordFormat === "alphabetic") return /^[a-z]+$/i.test(secret);
+  if (d.passwordFormat === "alphanumeric") return /^[a-z0-9]+$/i.test(secret);
+  return true;
+}
+function parseFeedbackLog(text, secret) {
+  const lines = String(text || "").split("\n");
+  for (const line of lines) {
+    if (!line.trim().startsWith("{")) continue;
+    try { const o = JSON.parse(line); if (String(o.passwordAttempted) === String(secret)) return o; } catch {}
+  }
+  for (const line of lines) {
+    if (!line.trim().startsWith("{")) continue;
+    try { return JSON.parse(line); } catch {}
+  }
+  return null;
+}
+function extractLogCandidates(text, d) {
+  const out = extractSecretsFromText(text);
+  for (const line of String(text || "").split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    try { const o = JSON.parse(line); if (typeof o.data === "string") out.push(o.data, ...extractSecretsFromText(o.data)); } catch {}
+  }
+  return out.filter(x => candidateFits(d, x)).map(String);
+}
+function parseMastermind(text) { const m = /(\d+)\s*,\s*(\d+)/.exec(String(text)); return m ? [Number(m[1]), Number(m[2])] : null; }
+function mastermindScore(secret, guess) { const sc = {}, gc = {}; let exact = 0, common = 0; for (let i = 0; i < secret.length; i++) if (secret[i] === guess[i]) exact++; else { sc[secret[i]] = (sc[secret[i]] || 0) + 1; gc[guess[i]] = (gc[guess[i]] || 0) + 1; } for (const c of Object.keys(gc)) common += Math.min(gc[c], sc[c] || 0); return [exact, common]; }
 function argsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function safe(fn, fallback) { try { return fn(); } catch { return fallback; } }
 async function safeAsync(fn, fallback) { try { return await fn(); } catch { return fallback; } }
