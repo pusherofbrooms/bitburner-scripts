@@ -148,13 +148,22 @@ async function harvestLogs(ns, target) {
 }
 
 async function replicateTo(ns, target, opts) {
-  const files = [SCRIPT, PASSWORD_DB, HINT_DB].filter(f => ns.fileExists(f));
-  safe(() => ns.scp(files, target, ns.getHostname()), false);
-  const running = safe(() => ns.ps(target).some(p => p.filename === SCRIPT), false);
-  if (!running) {
-    const pid = safe(() => ns.exec(SCRIPT, target, 1, "--sleep", opts.sleepMs, "--max-dynamic", opts.maxDynamicAttempts), 0);
-    if (pid) ns.print(`replicated to ${target} pid=${pid}`);
-  }
+  const childArgs = ["--sleep", opts.sleepMs, "--max-dynamic", opts.maxDynamicAttempts];
+  if (opts.phish) childArgs.push("--phish");
+  if (opts.verbose) childArgs.push("--verbose");
+
+  // Always seed the executable from home. Otherwise old crawlers can re-infect a cleaned node with an old local copy.
+  safe(() => ns.scp(SCRIPT, target, "home"), false);
+  safe(() => ns.scp([PASSWORD_DB, HINT_DB].filter(f => ns.fileExists(f)), target, ns.getHostname()), false);
+
+  const procs = safe(() => ns.ps(target).filter(p => p.filename === SCRIPT), []);
+  const desiredRunning = procs.some(p => argsEqual(p.args, childArgs));
+  if (desiredRunning) return;
+
+  // If options changed, replace stale crawler copies instead of leaving them running forever.
+  for (const p of procs) safe(() => ns.kill(p.pid), false);
+  const pid = safe(() => ns.exec(SCRIPT, target, 1, ...childArgs), 0);
+  if (pid) ns.print(`replicated to ${target} pid=${pid}`);
 }
 async function lootCurrent(ns, opts) {
   const here = ns.getHostname();
@@ -175,6 +184,7 @@ async function ensureHomeFile(ns, file, content) { if (ns.getHostname() === "hom
 function readJson(ns, file, fallback) { try { return JSON.parse(ns.read(file) || JSON.stringify(fallback)); } catch { return fallback; } }
 function writeJson(ns, file, data) { ns.write(file, JSON.stringify(data, null, 2), "w"); }
 function unique(arr) { return [...new Set(arr)]; }
+function argsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function safe(fn, fallback) { try { return fn(); } catch { return fallback; } }
 async function safeAsync(fn, fallback) { try { return await fn(); } catch { return fallback; } }
 function literalHints(text) { const out = []; for (const re of [/password is\s+([^\s]+)/ig,/pin is\s+([^\s]+)/ig,/remember to use\s+([^\s]+)/ig,/set to\s+([^\s]+)/ig,/key is\s+([^\s]+)/ig,/secret is\s+([^\s]+)/ig]) { let m; while ((m = re.exec(text))) out.push(m[1].replace(/["'.:,;]+$/g, "")); } return out; }
