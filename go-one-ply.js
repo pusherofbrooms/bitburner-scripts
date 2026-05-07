@@ -1,5 +1,5 @@
 /**
- * IPvGO one-ply heuristic player.
+ * IPvGO heuristic player with one-ply move scoring and a lightweight opponent-reply penalty.
  *
  * Usage:
  *   run go-one-ply.js "Netburners" 5 10
@@ -60,7 +60,7 @@ export async function main(ns) {
 
       const board = ns.go.getBoardState();
       const valid = ns.go.analysis.getValidMoves();
-      const move = chooseMove(board, valid);
+      const move = chooseMove(board, valid, opponent);
 
       if (!move) {
         const result = await ns.go.passTurn();
@@ -97,7 +97,7 @@ export async function main(ns) {
   }
 }
 
-function chooseMove(board, valid) {
+function chooseMove(board, valid, opponent = "Illuminati") {
   const current = evaluateBoard(board);
   let best = null;
   const moves = [];
@@ -107,8 +107,10 @@ function chooseMove(board, valid) {
       if (!valid[x][y]) continue;
       const sim = simulateMove(board, x, y, "X");
       if (!sim) continue;
-      const score = evaluateBoard(sim.board) + moveShapeBonus(board, x, y) + tacticalBonus(board, sim, x, y);
-      const reason = `eval ${evaluateBoard(sim.board).toFixed(1)}, cap ${sim.captured}`;
+      const evalScore = evaluateBoard(sim.board);
+      const reply = estimateOpponentReply(sim.board, opponent);
+      const score = evalScore + moveShapeBonus(board, x, y, "X") + tacticalBonus(board, sim, x, y, "X") - reply.penalty;
+      const reason = `eval ${evalScore.toFixed(1)}, cap ${sim.captured}, reply ${reply.penalty.toFixed(1)}${reply.move ? `@${coord(reply.move.x, reply.move.y)}` : ""}`;
       moves.push({ x, y, score, reason, captured: sim.captured });
       if (!best || score > best.score) best = moves[moves.length - 1];
     }
@@ -173,7 +175,73 @@ function evaluateBoard(board) {
   return value;
 }
 
-function tacticalBonus(before, sim, x, y) {
+function estimateOpponentReply(board, opponent = "Illuminati") {
+  const baseEval = evaluateBoard(board);
+  let best = { penalty: 0, move: null };
+
+  for (const { x, y } of candidateReplyMoves(board, "O")) {
+    const sim = simulateMove(board, x, y, "O");
+    if (!sim) continue;
+
+    // evaluateBoard is black-positive, so a drop is good for white.  Add a modest
+    // white-perspective shape/tactical term to catch captures, ataris, and defenses
+    // even when the territory evaluator is slow to notice them.
+    const evalSwing = baseEval - evaluateBoard(sim.board);
+    const replyValue = (evalSwing + moveShapeBonus(board, x, y, "O") * 0.7 + tacticalBonus(board, sim, x, y, "O") * 0.9) * opponentReplyScale(opponent);
+    if (replyValue > best.penalty) best = { penalty: replyValue, move: { x, y } };
+  }
+
+  return best;
+}
+
+function opponentReplyScale(opponent) {
+  // Source AI personalities: Netburners are often random, Slum Snakes defend/grow,
+  // Black Hand/Tetrads attack locally, and Daedalus/Illuminati are consistently tactical.
+  if (opponent === "Netburners") return 0.45;
+  if (opponent === "Slum Snakes") return 0.75;
+  if (opponent === "The Black Hand") return 0.9;
+  if (opponent === "Tetrads") return 0.95;
+  return 1;
+}
+
+function candidateReplyMoves(board, color) {
+  const n = board.length;
+  const candidates = [];
+  const earlyGame = countStones(board) < n;
+  for (let x = 0; x < n; x++) {
+    for (let y = 0; y < n; y++) {
+      if (board[x][y] !== ".") continue;
+
+      // On larger boards, opponent replies that matter tactically are almost always
+      // near existing stones. Keep remote openings available early, but prune late
+      // empty-space filler to avoid an O(n^4) slog on 13x13 games.
+      if (n <= 7 || hasNeighboringStone(board, x, y) || earlyGame) candidates.push({ x, y });
+    }
+  }
+
+  // Captures/defenses are represented by liberties of existing chains; try those
+  // first for deterministic tie-breaking and to keep the best reply tactically sane.
+  candidates.sort((a, b) => replyUrgency(board, b.x, b.y, color) - replyUrgency(board, a.x, a.y, color));
+  return candidates;
+}
+
+function replyUrgency(board, x, y, color) {
+  const opponent = color === "X" ? "O" : "X";
+  let urgency = 0;
+  const b = board.map((c) => c.split(""));
+  for (const [nx, ny] of neighborsFromBoard(board, x, y)) {
+    if (board[nx][ny] !== color && board[nx][ny] !== opponent) continue;
+    const group = collectGroup(b, nx, ny);
+    const libs = countLibertiesFromBoard(board, group);
+    if (board[nx][ny] === opponent && libs === 1) urgency += 100 + group.length;
+    else if (board[nx][ny] === color && libs === 1) urgency += 80 + group.length;
+    else if (board[nx][ny] === opponent && libs === 2) urgency += 20;
+  }
+  return urgency;
+}
+
+function tacticalBonus(before, sim, x, y, color = "X") {
+  const opponent = color === "X" ? "O" : "X";
   let bonus = 0;
   if (sim.captured) bonus += 35 * sim.captured;
 
@@ -182,17 +250,25 @@ function tacticalBonus(before, sim, x, y) {
   if (libs === 1 && !sim.captured) bonus -= 35;
   if (libs >= 3) bonus += 3;
 
-  // Defend: if the move was a liberty of one of our endangered groups, reward it.
+  // Defend: if the move was a liberty of one of this color's endangered groups, reward it.
   for (const [nx, ny] of neighborsFromBoard(before, x, y)) {
-    if (before[nx][ny] !== "X") continue;
+    if (before[nx][ny] !== color) continue;
     const group = collectGroup(before.map((c) => c.split("")), nx, ny);
     if (countLibertiesFromBoard(before, group) === 1) bonus += 30;
+  }
+
+  // Attack: putting an adjacent enemy group into atari is forcing, but less valuable
+  // than an immediate capture because the opponent often gets to answer.
+  for (const [nx, ny] of neighborsFromBoard(sim.board, x, y)) {
+    if (sim.board[nx][ny] !== opponent) continue;
+    const group = collectGroup(sim.board.map((c) => c.split("")), nx, ny);
+    if (countLibertiesFromBoard(sim.board, group) === 1) bonus += 10;
   }
 
   return bonus;
 }
 
-function moveShapeBonus(board, x, y) {
+function moveShapeBonus(board, x, y, color = "X") {
   const n = board.length;
   let bonus = 0;
   const corner = (x === 0 || x === n - 1) && (y === 0 || y === n - 1);
@@ -202,8 +278,8 @@ function moveShapeBonus(board, x, y) {
 
   let own = 0, enemy = 0, empty = 0;
   for (const [nx, ny] of neighborsFromBoard(board, x, y)) {
-    if (board[nx][ny] === "X") own++;
-    else if (board[nx][ny] === "O") enemy++;
+    if (board[nx][ny] === color) own++;
+    else if (board[nx][ny] !== ".") enemy++;
     else if (board[nx][ny] === ".") empty++;
   }
   bonus += own * 4 + enemy * 2 + empty * 0.5;
@@ -211,6 +287,16 @@ function moveShapeBonus(board, x, y) {
   // Opening: avoid first-line-only crawling on larger boards, but don't overdo it on 5x5.
   if (n >= 7 && !edge) bonus += 1;
   return bonus;
+}
+
+function hasNeighboringStone(board, x, y) {
+  return neighborsFromBoard(board, x, y).some(([nx, ny]) => board[nx][ny] === "X" || board[nx][ny] === "O");
+}
+
+function countStones(board) {
+  let stones = 0;
+  for (const col of board) for (const c of col) if (c === "X" || c === "O") stones++;
+  return stones;
 }
 
 function boardScore(board) {
