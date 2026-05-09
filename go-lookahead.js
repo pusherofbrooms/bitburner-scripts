@@ -677,8 +677,15 @@ function printUsage(ns) {
   ns.tprintf("  --replies    white replies per black move. Default auto.");
   ns.tprintf("  --three-ply  selectively search black tactical answer. Default true.");
   ns.tprintf("  --no-three-ply disable selective 3-ply.");
-  ns.tprintf("Playable opponents:");
-  for (const opponent of OPPONENTS) ns.tprintf(`  - ${opponent}`);
+  ns.tprintf("Playable opponents / node power bonuses:");
+  ns.tprintf("  Netburners    - increased hacknet production (power 1.3)");
+  ns.tprintf("  Slum Snakes   - crime success rate (power 1.2)");
+  ns.tprintf("  The Black Hand - hacking money (power 0.9)");
+  ns.tprintf("  Tetrads       - strength, defense, dexterity, and agility levels (power 0.7)");
+  ns.tprintf("  Daedalus      - company and faction reputation gain (power 1.1)");
+  ns.tprintf("  Illuminati    - faster hack(), grow(), and weaken() (power 0.7)");
+  ns.tprintf("  ????????????  - hacking level (power 2.0)");
+  ns.tprintf("  No AI         - practice board; no node power bonus");
 }
 
 const OPPONENTS = [
