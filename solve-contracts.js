@@ -10,13 +10,13 @@ export async function main(ns) {
             const onServer = ns.ls(server, ".cct").map((contract) => {
                 const type = ns.codingcontract.getContractType(contract, server);
                 const data = ns.codingcontract.getData(contract, server);
-                const didSolve = solve(type, data, server, contract, ns);
-                return `${server} - ${contract} - ${type} - ${didSolve || "FAILED!"}`;
+                const result = solve(type, data, server, contract, ns);
+                return `${server} - ${contract} - ${type} - ${result.status}`;
             });
             return onServer;
         });
         //ns.tprint("Found " + contracts.length + " contracts");
-        contracts.forEach((contract) => void ns.print(contract));
+        contracts.forEach((contract) => ns.tprint(contract));
         // sleep in case this script is run manually
         //await ns.sleep(60000)
     //}
@@ -119,9 +119,16 @@ function solve(type, data, server, contract, ns) {
             solution = removeInvalidParenthesis(data);
             break;
         default:
-            return false;
+            return { status: "UNSUPPORTED" };
     }
-    return (solution !== undefined) ? ns.codingcontract.attempt(solution, contract, server) : "";
+    if (solution === undefined) return { status: "NO SOLUTION" };
+
+    const reward = ns.codingcontract.attempt(solution, contract, server);
+    if (reward) return { status: `SUCCESS: ${reward}` };
+
+    let tries = "unknown";
+    try { tries = ns.codingcontract.getNumTriesRemaining(contract, server); } catch {}
+    return { status: `FAILED (${tries} tries left)` };
 }
 
 // Sanitize Parentheses in Expression
