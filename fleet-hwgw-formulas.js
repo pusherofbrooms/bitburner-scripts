@@ -48,7 +48,7 @@ export async function main(ns) {
   ns.disableLog("ALL");
 
   let targets = flags.all ? chooseTargets() : flags._.map(String);
-  targets = targets.filter((t) => ns.serverExists(t) && ns.hasRootAccess(t) && ns.getServerMaxMoney(t) > 0);
+  targets = targets.filter((t) => !isHacknetServer(t) && ns.serverExists(t) && ns.hasRootAccess(t) && ns.getServerMaxMoney(t) > 0);
   if (targets.length === 0) {
     ns.tprint("No valid rooted money targets.");
     return;
@@ -74,7 +74,7 @@ export async function main(ns) {
       nextTargetRefresh = Date.now() + targetRefreshMs;
       ns.print(`refreshed targets: ${targets.join(", ")}`);
     } else {
-      targets = targets.filter((t) => ns.hasRootAccess(t) && ns.getServerMaxMoney(t) > 0);
+      targets = targets.filter((t) => !isHacknetServer(t) && ns.hasRootAccess(t) && ns.getServerMaxMoney(t) > 0);
     }
 
     let launchedAny = false;
@@ -126,6 +126,7 @@ export async function main(ns) {
 
   function chooseTargets() {
     return getAllServers()
+      .filter((host) => !isHacknetServer(host))
       .filter((host) => ns.hasRootAccess(host))
       .filter((host) => ns.getServerMaxMoney(host) > 0)
       .filter((host) => ns.getServerRequiredHackingLevel(host) <= ns.getHackingLevel())
@@ -234,8 +235,14 @@ export async function main(ns) {
 
   function getAllServers(start = "home", visited = new Set()) {
     visited.add(start);
-    for (const server of ns.scan(start)) if (!visited.has(server)) getAllServers(server, visited);
+    for (const server of ns.scan(start)) {
+      if (!visited.has(server) && !isHacknetServer(server)) getAllServers(server, visited);
+    }
     return [...visited];
+  }
+
+  function isHacknetServer(host) {
+    return host.startsWith("hacknet-server-");
   }
 
   function getWorkers() {

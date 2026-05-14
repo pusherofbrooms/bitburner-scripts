@@ -6,7 +6,7 @@ export async function main(ns) {
     const sortArg = args.find(a => a.startsWith("--sort="));
     const sortKey = sortArg ? sortArg.split("=")[1] : "level";
 
-    // Gather all servers via BFS from "home"
+    // Gather all servers via BFS from "home", skipping Hacknet servers
     const servers = scanAll(ns, "home");
 
     // Collect server info
@@ -90,7 +90,7 @@ export async function main(ns) {
             try {
                 const neigh = ns.scan(cur);
                 for (const n of neigh) {
-                    if (!visited.has(n)) {
+                    if (!visited.has(n) && !isHacknetServer(n)) {
                         visited.add(n);
                         q.push(n);
                         out.push(n);
@@ -101,6 +101,10 @@ export async function main(ns) {
             }
         }
         return out;
+    }
+
+    function isHacknetServer(host) {
+        return host.startsWith("hacknet-server-");
     }
 
     function formatMoney(n) {
