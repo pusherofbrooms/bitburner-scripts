@@ -23,7 +23,7 @@ function territoryWar(ns) {
 	// sometimes territory is stuck at something like 99.99999999999983%
 	// since clash chance takes time to decrease anyways, should not be an issue to stop a bit before 100,000000%
 	if (gangInfo.territory < 0.9999) {
-		let otherGangInfos = ns.gang.getOtherGangInformation();
+		let otherGangInfos = ns.gang.getAllGangInformation();
 		let myGangPower = gangInfo.power;
 		//ns.print("My gang power: " + myGangPower);
 		let lowestWinChance = 1;
