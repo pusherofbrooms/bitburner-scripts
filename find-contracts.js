@@ -12,13 +12,13 @@ export function getAllServers(ns, start = 'home', visited = new Set()) {
 }
 
 export async function main(ns) {
-    const allServers = getAllServers(ns);
+    const allServers = getAllServers(ns).filter((server) => server !== "home");
     
     // Print sorted server information
     for (const serv of allServers) {
-      let files = ns.ls(serv);
+      const files = ns.ls(serv);
       if (files.find((name) => name.startsWith("contract-"))){
-        ns.tprint(`Name: ${serv}, Files: ${ns.ls(serv)}\n`);
+        ns.tprint(`Name: ${serv}, Files: ${files}\n`);
       }
     }
 }
