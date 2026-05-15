@@ -194,6 +194,9 @@ const tasks = ["Mug People", "Deal Drugs", "Strongarm Civilians", "Run a Con", "
 
 function combatEquipment(ns) {
 	return ns.gang.getEquipmentNames().filter((equipment) => {
+		if (excludedEquipment.includes(equipment)) {
+			return false;
+		}
 		let stats = ns.gang.getEquipmentStats(equipment);
 		return stats.str || stats.def || stats.dex || stats.agi;
 	});
@@ -209,4 +212,6 @@ function fallbackTask(gangInfo) {
 	return "Human Trafficking";
 }
 
-const combatGangs = ["Speakers for the Dead", "The Dark Army", "The Syndicate", "Tetrads", "Slum Snakes"]
+const excludedEquipment = ["BitWire", "Neuralstimulator", "DataJack"];
+
+const combatGangs = ["Speakers for the Dead", "The Dark Army", "The Syndicate", "Tetrads", "Slum Snakes"];
