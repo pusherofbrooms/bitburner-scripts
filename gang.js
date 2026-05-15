@@ -1,18 +1,19 @@
 /** @param {NS} ns **/
 export async function main(ns) {
 	ns.disableLog("ALL");
-	if (!ns.gang.inGang()) {
-		joinGang(ns);
+	if (!ns.gang.inGang() && !joinGang(ns)) {
+		ns.tprint("ERROR: Could not create a combat gang. Join an eligible combat faction first.");
+		return;
 	}
 
-	var territoryWinChance = 1;
+	let territoryWinChance = 1;
 	while (true) {
 		recruit(ns);
 		equipMembers(ns);
 		ascend(ns);
 		territoryWinChance = territoryWar(ns);
 		assignMembers(ns, territoryWinChance);
-		await ns.sleep(2000);
+		await ns.gang.nextUpdate();
 	}
 }
 
@@ -24,25 +25,16 @@ function territoryWar(ns) {
 	// since clash chance takes time to decrease anyways, should not be an issue to stop a bit before 100,000000%
 	if (gangInfo.territory < 0.9999) {
 		let otherGangInfos = ns.gang.getAllGangInformation();
-		let myGangPower = gangInfo.power;
-		//ns.print("My gang power: " + myGangPower);
 		let lowestWinChance = 1;
-		for (const otherGang of combatGangs.concat(hackingGangs)) {
-			if (otherGang == gangInfo.faction) {
+		for (const otherGang of Object.keys(otherGangInfos)) {
+			if (otherGang == gangInfo.faction || otherGangInfos[otherGang].territory <= 0) {
 				continue;
 			}
-			else if (otherGangInfos[otherGang].territory <= 0) {
-				continue;
-			}
-			else {
-				let otherGangPower = otherGangInfos[otherGang].power;
-				let winChance = myGangPower / (myGangPower + otherGangPower);
-				lowestWinChance = Math.min(lowestWinChance, winChance);
-			}
+			lowestWinChance = Math.min(lowestWinChance, ns.gang.getChanceToWinClash(otherGang));
 		}
 		if (lowestWinChance > minWinChanceToStartWar) {
 			if (!gangInfo.territoryWarfareEngaged) {
-				ns.print("WARN start territory warfate");
+				ns.print("WARN start territory warfare");
 				ns.toast("Start territory warfare");
 				ns.gang.setTerritoryWarfare(true);
 			}
@@ -52,7 +44,7 @@ function territoryWar(ns) {
 	}
 
 	if (gangInfo.territoryWarfareEngaged) {
-		ns.print("WARN stop territory warfate");
+		ns.print("WARN stop territory warfare");
 		ns.toast("Stop territory warfare");
 		ns.gang.setTerritoryWarfare(false);
 	}
@@ -83,12 +75,13 @@ function equipMembers(ns) {
 	let members = ns.gang.getMemberNames();
 	for (let member of members) {
 		let memberInfo = ns.gang.getMemberInformation(member);
-		if (memberInfo.augmentations.length < augmentationNames.length) {
-			for (let augmentation of augmentationNames) {
-				if (ns.gang.getEquipmentCost(augmentation) < (0.01 * ns.getServerMoneyAvailable("home"))) {
-					ns.print("Purchase augmentation for " + member + ": " + augmentation);
-					ns.gang.purchaseEquipment(member, augmentation);
-				}
+		for (let equipment of combatEquipment(ns)) {
+			if (memberInfo.upgrades.includes(equipment) || memberInfo.augmentations.includes(equipment)) {
+				continue;
+			}
+			if (ns.gang.getEquipmentCost(equipment) < (0.01 * ns.getServerMoneyAvailable("home"))) {
+				ns.print("Purchase equipment for " + member + ": " + equipment);
+				ns.gang.purchaseEquipment(member, equipment);
 			}
 		}
 	}
@@ -98,6 +91,7 @@ function assignMembers(ns, territoryWinChance) {
 	let members = ns.gang.getMemberNames();
 	members.sort((a, b) => memberCombatStats(ns, b) - memberCombatStats(ns, a));
 	let gangInfo = ns.gang.getGangInformation();
+	let hasFormulas = ns.fileExists("Formulas.exe", "home");
 	let workJobs = Math.floor((members.length) / 2);
 	let wantedLevelIncrease = 0;
 	for (let member of members) {
@@ -113,22 +107,28 @@ function assignMembers(ns, territoryWinChance) {
 		else if (memberCombatStats(ns, member) < 50) {
 			highestValueTask = "Train Combat";
 		}
-		else if (workJobs >= 0 && wantedLevelIncrease > 0) {
+		else if (workJobs > 0 && wantedLevelIncrease > 0) {
 			workJobs--;
 			highestValueTask = "Vigilante Justice";
-			//ns.print("Wanted Level for Vigilante: " + ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(highestValueTask)))
-			wantedLevelIncrease += ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(highestValueTask));
+			if (hasFormulas) {
+				wantedLevelIncrease += ns.formulas.gang.wantedLevelGain(gangInfo, memberInfo, ns.gang.getTaskStats(highestValueTask));
+			}
 		}
 		else if (workJobs > 0 && memberCombatStats(ns, member) > 50) {
 			workJobs--;
-			for (const task of tasks) {
-				if (taskValue(ns, gangInfo, member, task) > highestTaskValue) {
-					highestTaskValue = taskValue(ns, gangInfo, member, task)
-					highestValueTask = task;
+			if (hasFormulas) {
+				for (const task of tasks) {
+					let value = taskValue(ns, gangInfo, member, task);
+					if (value > highestTaskValue) {
+						highestTaskValue = value;
+						highestValueTask = task;
+					}
 				}
+				wantedLevelIncrease += ns.formulas.gang.wantedLevelGain(gangInfo, memberInfo, ns.gang.getTaskStats(highestValueTask));
 			}
-			wantedLevelIncrease += ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(highestValueTask));
-			//ns.print("Wanted Level for Increase: " + ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(highestValueTask)))
+			else {
+				highestValueTask = fallbackTask(gangInfo);
+			}
 		}
 
 
@@ -184,15 +184,29 @@ function recruit(ns) {
 function joinGang(ns) {
 	for (const myGang of combatGangs) {
 		if (ns.gang.createGang(myGang)) {
-			return;
+			return true;
 		}
 	}
+	return false;
 }
 
 const tasks = ["Mug People", "Deal Drugs", "Strongarm Civilians", "Run a Con", "Armed Robbery", "Traffick Illegal Arms", "Threaten & Blackmail", "Human Trafficking", "Terrorism"];
 
-const augmentationNames = ["Bionic Arms", "Bionic Legs", "Bionic Spine", "BrachiBlades", "Nanofiber Weave", "Synthetic Heart", "Synfibril Muscle", "Graphene Bone Lacings", "BitWire", "Neuralstimulator", "DataJack"];
+function combatEquipment(ns) {
+	return ns.gang.getEquipmentNames().filter((equipment) => {
+		let stats = ns.gang.getEquipmentStats(equipment);
+		return stats.str || stats.def || stats.dex || stats.agi;
+	});
+}
+
+function fallbackTask(gangInfo) {
+	if (gangInfo.wantedPenalty < 0.9 || gangInfo.wantedLevelGainRate > 0) {
+		return "Vigilante Justice";
+	}
+	if (gangInfo.territory < 0.5) {
+		return "Terrorism";
+	}
+	return "Human Trafficking";
+}
 
 const combatGangs = ["Speakers for the Dead", "The Dark Army", "The Syndicate", "Tetrads", "Slum Snakes"]
-
-const hackingGangs = ["NiteSec", "The Black Hand"];
