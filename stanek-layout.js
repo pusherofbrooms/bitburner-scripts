@@ -3,6 +3,10 @@ export async function main(ns) {
     ns.disableLog("ALL");
 
     const args = ns.args.map(String);
+    if (args.includes("--help") || args.includes("-h")) {
+        printHelp(ns);
+        return;
+    }
     if (args.includes("--list")) {
         listFragments(ns);
         return;
@@ -22,6 +26,26 @@ export async function main(ns) {
         ns.stanek.placeFragment(placement.x, placement.y, placement.rotation, fragment.id);
         ns.tprint(`Placed ${fragment.id} at (${placement.x}, ${placement.y}) r${placement.rotation}: ${fragment.effect}`);
     }
+}
+
+function printHelp(ns) {
+    ns.tprint(`Usage:
+  run stanek-layout.js --help
+  run stanek-layout.js --list
+  run stanek-layout.js [preference ...]
+
+Clears Stanek's Gift, then greedily places fragments matching preferences.
+
+Preferences can be keywords or exact fragment IDs:
+  hack grow combat money rep crime bladeburner
+  hack-exp hack-power str def dex agi cha
+  id:0 id:5 12
+
+Examples:
+  run stanek-layout.js hack grow combat
+  run stanek-layout.js id:0 id:1 id:5 id:100
+
+Use --list to see fragment IDs, types, sizes, limits, and effects.`);
 }
 
 function listFragments(ns) {
