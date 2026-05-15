@@ -252,62 +252,33 @@ function solverLargestSubset(arrayData) {
 // Find All Valid Math Expressions
 
 function solverWaysToExpress(arrayData) {
-    //ns.tprint("solverWaysToExpress()");
-    //await ns.sleep(1000);
-    let i, j, k;
+    const digits = arrayData[0];
+    const target = arrayData[1];
+    const validExpressions = [];
 
-    let operatorList = ["", "+", "-", "*"];
-    let validExpressions = [];
-
-    let tempPermutations = Math.pow(4, (arrayData[0].length - 1));
-
-    for (i = 0; i < tempPermutations; i++) {
-
-        //if (!Boolean(i % 100000)) {
-        //    ns.tprint(i + "/" + tempPermutations + ", " + validExpressions.length + " found.");
-        //    await ns.sleep(100);
-        //}
-
-        let arraySummands = [];
-        let candidateExpression = arrayData[0].substr(0, 1);
-        arraySummands[0] = parseInt(arrayData[0].substr(0, 1));
-
-        for (j = 1; j < arrayData[0].length; j++) {
-            candidateExpression += operatorList[(i >> ((j - 1) * 2)) % 4] + arrayData[0].substr(j, 1);
-
-            let rollingOperator = operatorList[(i >> ((j - 1) * 2)) % 4];
-            let rollingOperand = parseInt(arrayData[0].substr(j, 1));
-
-            switch (rollingOperator) {
-                case "":
-                    rollingOperand = rollingOperand * (arraySummands[arraySummands.length - 1] / Math.abs(arraySummands[arraySummands.length - 1]));
-                    arraySummands[arraySummands.length - 1] = arraySummands[arraySummands.length - 1] * 10 + rollingOperand;
-                    break;
-                case "+":
-                    arraySummands[arraySummands.length] = rollingOperand;
-                    break;
-                case "-":
-                    arraySummands[arraySummands.length] = 0 - rollingOperand;
-                    break;
-                case "*":
-                    while (j < arrayData[0].length - 1 && ((i >> (j * 2)) % 4) === 0) {
-                        j += 1;
-                        candidateExpression += arrayData[0].substr(j, 1);
-                        rollingOperand = rollingOperand * 10 + parseInt(arrayData[0].substr(j, 1));
-                    }
-                    arraySummands[arraySummands.length - 1] = arraySummands[arraySummands.length - 1] * rollingOperand;
-                    break;
-            }
+    function search(index, expression, value, previousOperand) {
+        if (index === digits.length) {
+            if (value === target) validExpressions.push(expression);
+            return;
         }
 
-        let rollingTotal = arraySummands.reduce(function(a, b) { return a + b; });
+        for (let end = index + 1; end <= digits.length; end++) {
+            const operandText = digits.slice(index, end);
+            if (operandText.length > 1 && operandText[0] === "0") break;
 
-        //if(arrayData[1] == eval(candidateExpression)){
-        if (arrayData[1] === rollingTotal) {
-            validExpressions[validExpressions.length] = candidateExpression;
+            const operand = Number(operandText);
+            if (index === 0) {
+                search(end, operandText, operand, operand);
+            }
+            else {
+                search(end, expression + "+" + operandText, value + operand, operand);
+                search(end, expression + "-" + operandText, value - operand, -operand);
+                search(end, expression + "*" + operandText, value - previousOperand + previousOperand * operand, previousOperand * operand);
+            }
         }
     }
 
+    search(0, "", 0, 0);
     return validExpressions;
 }
 
