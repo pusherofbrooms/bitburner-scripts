@@ -11,5 +11,5 @@
     "skipLibCheck": true
   },
   "include": ["**/*.js", "types/**/*.d.ts"],
-  "exclude": ["node_modules", "devmenu.js", "save-edit.js"]
+  "exclude": ["node_modules", "devmenu.js", "save-edit.js", "solve-contracts.js"]
 }
