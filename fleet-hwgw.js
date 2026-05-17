@@ -84,7 +84,7 @@ export async function main(ns) {
   function getAllServers(start = "home", visited = new Set()) {
     visited.add(start);
     for (const server of ns.scan(start)) {
-      if (!visited.has(server) && !isHacknetServer(server)) getAllServers(server, visited);
+      if (!visited.has(server) && server !== "darkweb" && !isHacknetServer(server)) getAllServers(server, visited);
     }
     return [...visited];
   }

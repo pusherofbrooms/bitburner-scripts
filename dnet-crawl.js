@@ -36,7 +36,7 @@ async function tick(ns, opts) {
 }
 
 async function solveNeighbor(ns, target, opts) {
-  const details = safe(() => ns.dnet.getServerAuthDetails(target), null);
+  const details = safe(() => ns.dnet.getServerDetails(target), null);
   if (!details || !details.isOnline || !details.isConnectedToCurrentServer) return false;
   recordHint(ns, target, details);
   if (details.hasSession) return true;
@@ -164,7 +164,7 @@ async function attemptWithFeedback(ns, target, secret) {
 async function harvestLogs(ns, target, details) {
   const hb = await safeAsync(() => ns.dnet.heartbleed(target, { peek: true, logsToCapture: 12 }), { logs: [] });
   const text = (hb.logs || []).join("\n"); if (!text) return; recordLogText(ns, target, text);
-  for (const secret of unique(extractLogCandidates(text, details))) if (await trySecret(ns, target, secret)) { rememberSecret(ns, target, secret, ns.dnet.getServerAuthDetails(target)); return; }
+  for (const secret of unique(extractLogCandidates(text, details))) if (await trySecret(ns, target, secret)) { rememberSecret(ns, target, secret, ns.dnet.getServerDetails(target)); return; }
 }
 
 async function replicateTo(ns, target, opts) {

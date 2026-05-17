@@ -3,7 +3,7 @@ export function getAllServers(ns, start = 'home', visited = new Set()) {
     const connections = ns.scan(start);
     
     for (const server of connections) {
-        if (!visited.has(server)) {
+        if (!visited.has(server) && server !== "darkweb") {
             getAllServers(ns, server, visited);
         }
     }

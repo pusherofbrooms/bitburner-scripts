@@ -90,7 +90,7 @@ export async function main(ns) {
             try {
                 const neigh = ns.scan(cur);
                 for (const n of neigh) {
-                    if (!visited.has(n) && !isHacknetServer(n)) {
+                    if (!visited.has(n) && n !== "darkweb" && !isHacknetServer(n)) {
                         visited.add(n);
                         q.push(n);
                         out.push(n);

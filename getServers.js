@@ -8,7 +8,7 @@ export function getAllServers(ns) {
 	while (queue.length) {
 		const server = queue.shift();
 		for (const neighbor of ns.scan(server)) {
-			if (!discovered.has(neighbor)) {
+			if (!discovered.has(neighbor) && neighbor !== "darkweb") {
 				discovered.add(neighbor);
 				queue.push(neighbor);
 			}
