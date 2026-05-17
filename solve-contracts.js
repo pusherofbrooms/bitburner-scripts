@@ -457,14 +457,15 @@ function isValidIpSegment(segment) {
 //GREATEST FACTOR
 
 function factor(num) {
-    for (let div = 2; div <= Math.sqrt(num); div++) {
-        if (num % div != 0) {
-            continue;
+    while (num % 2 === 0) num /= 2;
+    let largest = num === 1 ? 2 : num;
+    for (let div = 3; div <= Math.sqrt(num); div += 2) {
+        while (num % div === 0) {
+            largest = div;
+            num /= div;
         }
-        num = num / div;
-        div = 2;
     }
-    return num;
+    return Math.max(largest, num);
 }
 
 //SPIRALIZE Matrix

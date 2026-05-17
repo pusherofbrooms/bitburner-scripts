@@ -9,12 +9,14 @@ export async function main(ns) {
     ["refreshTargets", 60000],
     ["minMoney", 0.995],
     ["maxSec", 0.05],
+    ["skillCap", 1],
     ["all", false],
+    ["hacknet", false],
     ["help", false],
   ]);
 
   if (flags.help || (!flags.all && flags._.length === 0)) {
-    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--targetLimit 8] [--refreshTargets 60000] [--steal 0.1] [--spacing 200] [--reserve 32] [--batchLimit 0] [--minMoney 0.995] [--maxSec 0.05]\n  --batchLimit 0 auto-scales from usable RAM and planned batch size\n  --minMoney/--maxSec control how fully prepped a target must be before launching batches");
+    ns.tprint("Usage: run fleet-hwgw-formulas.js TARGET... [--all] [--hacknet] [--targetLimit 8] [--refreshTargets 60000] [--skillCap 1] [--steal 0.1] [--spacing 200] [--reserve 32] [--batchLimit 0] [--minMoney 0.995] [--maxSec 0.05]\n  --hacknet allows hacknet servers to be used as workers\n  --skillCap limits --all targets to required hacking <= hacking level * skillCap\n  --batchLimit 0 auto-scales from usable RAM and planned batch size\n  --minMoney/--maxSec control how fully prepped a target must be before launching batches");
     return;
   }
   if (!ns.fileExists("Formulas.exe", "home")) {
@@ -41,6 +43,7 @@ export async function main(ns) {
   const targetRefreshMs = Math.max(5000, Number(flags.refreshTargets));
   const minMoneyRatio = Math.max(0.5, Math.min(1, Number(flags.minMoney)));
   const maxSecDrift = Math.max(0, Number(flags.maxSec));
+  const skillCap = Math.max(0, Number(flags.skillCap));
   const hackRam = ns.getScriptRam(hackScript);
   const growRam = ns.getScriptRam(growScript);
   const weakenRam = ns.getScriptRam(weakenScript);
@@ -54,7 +57,7 @@ export async function main(ns) {
     return;
   }
 
-  ns.tprint(`Formula fleet HWGW: ${targets.join(", ")}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms, batchLimit=${configuredBatchLimit || "auto"}, targetLimit=${targetLimit}`);
+  ns.tprint(`Formula fleet HWGW: ${targets.join(", ")}; steal=${ns.format.percent(stealFraction, 1)}, spacing=${spacing}ms, batchLimit=${configuredBatchLimit || "auto"}, targetLimit=${targetLimit}, skillCap=${skillCap}, hacknet=${flags.hacknet}`);
 
   const copiedHosts = new Set();
   let batchId = 0;
@@ -129,7 +132,7 @@ export async function main(ns) {
       .filter((host) => !isHacknetServer(host))
       .filter((host) => ns.hasRootAccess(host))
       .filter((host) => ns.getServerMaxMoney(host) > 0)
-      .filter((host) => ns.getServerRequiredHackingLevel(host) <= ns.getHackingLevel())
+      .filter((host) => ns.getServerRequiredHackingLevel(host) <= ns.getHackingLevel() * skillCap)
       .sort((a, b) => scoreTarget(b) - scoreTarget(a))
       .slice(0, targetLimit);
   }
@@ -166,15 +169,17 @@ export async function main(ns) {
     const actualSteal = Math.min(0.9, hackThreads * hackPercent);
 
     const afterHack = { ...server, moneyAvailable: Math.max(1, server.moneyMax * (1 - actualSteal)) };
-    const growThreads = Math.max(1, Math.ceil(ns.formulas.hacking.growThreads(afterHack, player, server.moneyMax)));
-    const weakenHackThreads = Math.max(1, Math.ceil(ns.hackAnalyzeSecurity(hackThreads) / ns.formulas.hacking.weakenEffect(1)));
+    const growThreads = Math.max(1, Math.ceil(ns.formulas.hacking.growThreads(afterHack, player, server.moneyMax, bestWorkerCores())));
+    const hackSecurity = ns.hackAnalyzeSecurity(hackThreads);
     // Do not pass host here: growthAnalyzeSecurity(threads, host) caps the security
     // estimate to the target's *current* growth need. In an HWGW batch the grow
     // runs after a future hack, so using the live host underestimates grow sec.
-    const weakenGrowThreads = Math.max(1, Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.formulas.hacking.weakenEffect(1)));
+    const growSecurity = ns.growthAnalyzeSecurity(growThreads);
+    const weakenHackThreads = Math.max(1, Math.ceil(hackSecurity / bestWeakenEffect()));
+    const weakenGrowThreads = Math.max(1, Math.ceil(growSecurity / bestWeakenEffect()));
 
     const batchRam = hackThreads * hackRam + growThreads * growRam + (weakenHackThreads + weakenGrowThreads) * weakenRam;
-    return { hackThreads, growThreads, weakenHackThreads, weakenGrowThreads, actualSteal, batchRam, weakenTime: ns.formulas.hacking.weakenTime(server, player) };
+    return { hackThreads, growThreads, weakenHackThreads, weakenGrowThreads, hackSecurity, growSecurity, afterHackMoney: afterHack.moneyAvailable, actualSteal, batchRam, weakenTime: ns.formulas.hacking.weakenTime(server, player) };
   }
 
   function launchBatch(target, batch, id, offset = 0) {
@@ -186,9 +191,9 @@ export async function main(ns) {
     const batchStart = Date.now() + offset;
     const jobs = [
       { script: hackScript, threads: batch.hackThreads, endTime: batchStart + weakenTime, duration: hackTime, ram: hackRam },
-      { script: weakenScript, threads: batch.weakenHackThreads, endTime: batchStart + weakenTime + spacing, duration: weakenTime, ram: weakenRam },
-      { script: growScript, threads: batch.growThreads, endTime: batchStart + weakenTime + spacing * 2, duration: growTime, ram: growRam },
-      { script: weakenScript, threads: batch.weakenGrowThreads, endTime: batchStart + weakenTime + spacing * 3, duration: weakenTime, ram: weakenRam },
+      { script: weakenScript, threads: batch.weakenHackThreads, weakenSecurity: batch.hackSecurity, endTime: batchStart + weakenTime + spacing, duration: weakenTime, ram: weakenRam },
+      { script: growScript, threads: batch.growThreads, growFromMoney: batch.afterHackMoney, growToMoney: server.moneyMax, endTime: batchStart + weakenTime + spacing * 2, duration: growTime, ram: growRam },
+      { script: weakenScript, threads: batch.weakenGrowThreads, weakenSecurityFromLastGrow: true, endTime: batchStart + weakenTime + spacing * 3, duration: weakenTime, ram: weakenRam },
     ];
     return launchJobs(target, jobs, id);
   }
@@ -204,16 +209,18 @@ export async function main(ns) {
   function launchPrep(target, id) {
     const server = ns.getServer(target);
     if (server.hackDifficulty > server.minDifficulty + maxSecDrift) {
-      const threads = Math.ceil((server.hackDifficulty - server.minDifficulty) / ns.formulas.hacking.weakenEffect(1));
-      return launchJobs(target, [{ script: weakenScript, threads, delay: 0, ram: weakenRam }], id);
+      const weakenSecurity = server.hackDifficulty - server.minDifficulty;
+      const threads = Math.ceil(weakenSecurity / bestWeakenEffect());
+      return launchJobs(target, [{ script: weakenScript, threads, weakenSecurity, delay: 0, ram: weakenRam }], id);
     }
     const growServer = { ...server, moneyAvailable: Math.max(1, server.moneyAvailable) };
-    const growThreads = Math.ceil(ns.formulas.hacking.growThreads(growServer, ns.getPlayer(), server.moneyMax));
-    const weakenThreads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.formulas.hacking.weakenEffect(1));
+    const growThreads = Math.ceil(ns.formulas.hacking.growThreads(growServer, ns.getPlayer(), server.moneyMax, bestWorkerCores()));
+    const growSecurity = ns.growthAnalyzeSecurity(growThreads);
+    const weakenThreads = Math.ceil(growSecurity / bestWeakenEffect());
     const growDelay = Math.max(0, ns.getWeakenTime(target) - ns.getGrowTime(target));
     return launchJobs(target, [
-      { script: growScript, threads: growThreads, delay: growDelay, ram: growRam },
-      { script: weakenScript, threads: weakenThreads, delay: spacing, ram: weakenRam },
+      { script: growScript, threads: growThreads, growFromMoney: growServer.moneyAvailable, growToMoney: server.moneyMax, delay: growDelay, ram: growRam },
+      { script: weakenScript, threads: weakenThreads, weakenSecurityFromLastGrow: true, delay: spacing, ram: weakenRam },
     ], id);
   }
 
@@ -236,7 +243,7 @@ export async function main(ns) {
   function getAllServers(start = "home", visited = new Set()) {
     visited.add(start);
     for (const server of ns.scan(start)) {
-      if (!visited.has(server) && !isHacknetServer(server)) getAllServers(server, visited);
+      if (!visited.has(server) && (flags.hacknet || !isHacknetServer(server))) getAllServers(server, visited);
     }
     return [...visited];
   }
@@ -247,8 +254,8 @@ export async function main(ns) {
 
   function getWorkers() {
     return getAllServers()
-      .filter((host) => ns.hasRootAccess(host) && ns.getServerMaxRam(host) > 0)
-      .map((host) => ({ host, freeRam: getFreeRam(host) }))
+      .filter((host) => (flags.hacknet || !isHacknetServer(host)) && ns.hasRootAccess(host) && ns.getServerMaxRam(host) > 0)
+      .map((host) => ({ host, freeRam: getFreeRam(host), cores: getCores(host) }))
       .filter((worker) => worker.freeRam >= Math.min(hackRam, growRam, weakenRam))
       .sort((a, b) => b.freeRam - a.freeRam);
   }
@@ -256,6 +263,18 @@ export async function main(ns) {
   function getFreeRam(host) {
     const reserve = host === "home" ? reserveHomeRam : 0;
     return Math.max(0, ns.getServerMaxRam(host) - ns.getServerUsedRam(host) - reserve);
+  }
+
+  function getCores(host) {
+    return Math.max(1, ns.getServer(host).cpuCores ?? 1);
+  }
+
+  function bestWorkerCores() {
+    return Math.max(1, ...getWorkers().map((worker) => worker.cores));
+  }
+
+  function bestWeakenEffect() {
+    return ns.formulas.hacking.weakenEffect(1, bestWorkerCores());
   }
 
   async function refreshWorkers() {
@@ -268,17 +287,19 @@ export async function main(ns) {
   function launchJobs(target, jobs, id) {
     const workers = getWorkers();
     const allocations = [];
+    let lastGrowSecurity = 0;
     for (const job of jobs) {
-      let remaining = job.threads;
-      for (const worker of workers) {
-        const threads = Math.min(remaining, Math.floor(worker.freeRam / job.ram));
-        if (threads <= 0) continue;
-        allocations.push({ ...job, target, host: worker.host, threads });
-        worker.freeRam -= threads * job.ram;
-        remaining -= threads;
-        if (remaining <= 0) break;
+      if (job.weakenSecurityFromLastGrow) {
+        if (!allocateWeaken({ ...job, weakenSecurity: lastGrowSecurity }, target, workers, allocations)) return false;
+      } else if (job.weakenSecurity !== undefined) {
+        if (!allocateWeaken(job, target, workers, allocations)) return false;
+      } else if (job.growToMoney !== undefined) {
+        const result = allocateGrow(job, target, workers, allocations);
+        if (!result.ok) return false;
+        lastGrowSecurity = result.security;
+      } else if (!allocateThreads(job, target, workers, allocations)) {
+        return false;
       }
-      if (remaining > 0) return false;
     }
 
     const pids = [];
@@ -293,6 +314,56 @@ export async function main(ns) {
     }
     ns.print(`launched ${id} ${target}: ${allocations.length} jobs`);
     return true;
+  }
+
+  function allocateThreads(job, target, workers, allocations) {
+    let remaining = job.threads;
+    for (const worker of workers) {
+      const threads = Math.min(remaining, Math.floor(worker.freeRam / job.ram));
+      if (threads <= 0) continue;
+      allocations.push({ ...job, target, host: worker.host, threads });
+      worker.freeRam -= threads * job.ram;
+      remaining -= threads;
+      if (remaining <= 0) break;
+    }
+    return remaining <= 0;
+  }
+
+  function allocateWeaken(job, target, workers, allocations) {
+    let remainingSecurity = job.weakenSecurity;
+    if (remainingSecurity <= 0) return true;
+    for (const worker of workers) {
+      const maxThreads = Math.floor(worker.freeRam / job.ram);
+      if (maxThreads <= 0) continue;
+      const threads = Math.min(maxThreads, Math.ceil(remainingSecurity / ns.formulas.hacking.weakenEffect(1, worker.cores)));
+      if (threads <= 0) continue;
+      allocations.push({ ...job, target, host: worker.host, threads });
+      worker.freeRam -= threads * job.ram;
+      remainingSecurity -= ns.formulas.hacking.weakenEffect(threads, worker.cores);
+      if (remainingSecurity <= 0) return true;
+    }
+    return false;
+  }
+
+  function allocateGrow(job, target, workers, allocations) {
+    let moneyAvailable = Math.max(1, job.growFromMoney);
+    let security = 0;
+    const player = ns.getPlayer();
+    for (const worker of workers) {
+      const maxThreads = Math.floor(worker.freeRam / job.ram);
+      if (maxThreads <= 0) continue;
+      const growServer = minServer(target);
+      growServer.moneyAvailable = moneyAvailable;
+      const needed = Math.ceil(ns.formulas.hacking.growThreads(growServer, player, job.growToMoney, worker.cores));
+      const threads = Math.min(maxThreads, needed);
+      if (threads <= 0) continue;
+      allocations.push({ ...job, target, host: worker.host, threads });
+      worker.freeRam -= threads * job.ram;
+      security += ns.growthAnalyzeSecurity(threads);
+      moneyAvailable = Math.min(job.growToMoney, moneyAvailable * ns.formulas.hacking.growPercent(growServer, threads, player, worker.cores));
+      if (moneyAvailable >= job.growToMoney) return { ok: true, security };
+    }
+    return { ok: false, security };
   }
 
   function getDelay(job) {
