@@ -654,6 +654,9 @@ function lzCompress(plain) {
                 else set(next, off, 1, s + "9" + off + "0");
             }
             set(next, 0, 1, s + len + off);
+            for (let newOff = 1; newOff <= Math.min(9, i); newOff++) {
+                if (plain[i - newOff] === plain[i]) set(next, newOff, 1, s + len + off + "0");
+            }
         }
         [cur, next] = [next, cur];
     }
