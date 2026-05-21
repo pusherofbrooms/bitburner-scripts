@@ -6,7 +6,7 @@ export async function main(ns) {
         ns.tprint(`Usage: run stanek-hacking-layout.js
 
 Clears Stanek's Gift and applies a predefined hacking-focused layout.
-Supported board sizes: 6x5, 6x6, 7x7.`);
+Supported board sizes: 6x5, 6x6, 7x6, 7x7.`);
         return;
     }
 
@@ -47,6 +47,18 @@ const hackingLayouts = {
         { id: 21, x: 1, y: 3, rotation: 0 },
         { id: 6, x: 5, y: 1, rotation: 3 },
         { id: 10, x: 3, y: 2, rotation: 1 },
+    ],
+    "7x6": [
+        { id: 0, x: 0, y: 0, rotation: 1 },
+        { id: 1, x: 1, y: 0, rotation: 0 },
+        { id: 5, x: 3, y: 0, rotation: 0 },
+        { id: 6, x: 6, y: 0, rotation: 1 },
+        { id: 7, x: 4, y: 1, rotation: 3 },
+        { id: 100, x: 0, y: 2, rotation: 3 },
+        { id: 10, x: 2, y: 2, rotation: 0 },
+        { id: 25, x: 0, y: 4, rotation: 0 },
+        { id: 103, x: 2, y: 4, rotation: 2 },
+        { id: 27, x: 4, y: 4, rotation: 2 },
     ],
     "7x7": [
         { id: 5, x: 0, y: 4, rotation: 3 },
