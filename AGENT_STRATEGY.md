@@ -22,6 +22,16 @@ bb_get_all_servers
 agent-browser --session <name> snapshot -i -c
 ```
 
+If `bb_status` shows the bridge is listening but not connected, connect it in-game:
+
+```text
+Options → Remote API
+Host: 127.0.0.1
+Port: 12525
+Use wss: off
+Click Connect
+```
+
 Do not assume freshness if a game is already open. Check:
 
 - money and hacking level,
