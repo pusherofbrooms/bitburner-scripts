@@ -136,6 +136,8 @@ HTTPWorm.exe
 SQLInject.exe
 ```
 
+Some darkweb programs are less useful to an agent than to a human, but in BN1 the darknet can be a worthwhile cash source. Once free cash is around `$50m`, consider buying `DarkscapeNavigator.exe`, pushing/running `dnet-crawl.js`, and opening `.cache` files for extra money.
+
 After every new port opener:
 
 ```text
