@@ -1,12 +1,12 @@
-# Agent Strategy Notes: BN1 Automation
+# Agent Strategy Notes: Bitburner Automation
 
-Living notes for using pi + agent-browser + the Bitburner bridge to play and eventually break BN1.
+Living handoff notes for using pi + agent-browser + the Bitburner bridge to play Bitburner. Keep this file BitNode-neutral: prefer repeatable observation, safe automation, and only specialize when the current BitNode mechanics justify it.
 
 ## Fresh agent handoff
 
-Assume a new handoff is probably a new BN1 game, but verify state before acting.
+Assume the game may already be in progress. Verify before acting.
 
-Useful local context:
+Local context:
 
 - Bitburner source clone: `~/ai/bitburner-src/`
 - Bridge project: `~/ai/pi-bitburner-bridge/`
@@ -22,7 +22,7 @@ bb_get_all_servers
 agent-browser --session <name> snapshot -i -c
 ```
 
-If `bb_status` shows the bridge is listening but not connected, connect it in-game:
+If the bridge is listening but not connected, connect it in-game:
 
 ```text
 Options → Remote API
@@ -32,44 +32,58 @@ Use wss: off
 Click Connect
 ```
 
-Do not assume freshness if a game is already open. Check:
+State to inspect before choosing actions:
 
-- money and hacking level,
-- current activity,
-- rooted servers,
-- installed/bought programs,
-- whether TOR has been purchased,
-- current factions and pending faction invites,
-- running scripts if `pi-agent.js` is available.
+- current BitNode/source files/multipliers if visible,
+- money, hacking level, home RAM/cores,
+- current work/focus state,
+- rooted servers and port opener programs,
+- TOR/darknet status and installed/bought programs,
+- current factions, pending invites, owned/queued augmentations,
+- scripts running on `home` and workers,
+- side systems unlocked/valuable in this run: IPvGO, stock market, gang, corporation, sleeves, Bladeburner, Stanek.
 
-Prefer not to run `pi-agent.js` early unless home RAM is plentiful. Use `agent-browser` terminal typing for early commands, and use the Remote API for file pushes/server metadata.
+Avoid `pi-agent.js` in the opening minutes if home RAM is tight. Use Remote API for files/server metadata and `agent-browser` for terminal/UI actions. Install/run `pi-agent.js` later when RAM cost is negligible or diagnostics are worth it.
 
 ## Control model
 
 Use a hybrid approach:
 
 - **Remote API / bridge**: push files, list files, inspect known servers, calculate RAM.
-- **agent-browser headed mode**: UI actions, terminal commands, city/vendor/faction/course interactions, visual supervision.
+- **agent-browser headed mode**: UI actions, terminal commands, city/vendor/faction/course/interactions, visual supervision.
 - **Netscript**: actual grind/income/scaling.
 
-Avoid `pi-agent.js` at the very start: it costs home RAM. Use it later after home has been upgraded enough that the RAM cost is negligible.
+Prefer idempotent actions. `rootall.js`, `best-target.js`, `scanall.js`, `find-contracts.js` are safe to repeat. `deployall.js` and `killall.js` intentionally restart/stop workers, so avoid spamming them unless roots, target, or script choice changed.
 
-## Current early/mid scripts
+## Script inventory
 
-Useful early game scripts to push to `home`:
+Core hacking/scaling:
 
 - `rootall.js` — root everything currently possible.
 - `basic-hack.js` — simple weaken/grow/hack loop.
-- `deployall.js` — copy and run a script on all rooted worker servers.
-- `best-target.js` — score viable targets.
-- `fleet-hwgw.js` — coordinated HWGW fleet controller.
-- `batchhack.js`, `batchgrow.js`, `batchweaken.js` — fleet workers.
-- `purchase-servers.js`, `upgrade-server.js` — cloud server scaling.
-- `find-contracts.js`, `solve-contracts.js` — coding contract support.
-- `killall.js` — kill scripts on all rooted servers; skips `home` unless `--include-home`.
-- `path.js`, `scanall.js`, `server-info.js`, `getServers.js` — utility scripts.
+- `deployall.js` — copy and run a script on rooted worker servers.
+- `best-target.js`, `server-info.js` — target scoring/inspection.
+- `fleet-hwgw.js` + `batchhack.js`/`batchgrow.js`/`batchweaken.js` — coordinated HWGW fleet.
+- `fleet-hwgw-formulas.js` — formulas-aware fleet controller after `Formulas.exe`.
+- `purchase-servers.js`, `upgrade-server.js` — purchased-server scaling.
+- `killall.js` — kill scripts on rooted servers; skips `home` unless `--include-home`.
 
-## Fresh BN1 opener
+Discovery/utilities:
+
+- `path.js`, `scanall.js`, `getServers.js`, `lsall.js`, `psgrep.js`, `player.js`.
+- `find-contracts.js`, `solve-contracts.js`, `contract-desc.js`, `contract-attempt.js`.
+
+Side systems:
+
+- Darknet: `dnet-crawl.js`, `dnet-crawl-bn15.js`.
+- IPvGO: `go-one-ply.js`, `go-lookahead.js`, `go-monte-carlo.js`.
+- Stocks: `stocks.js`, `liquidate-stocks.js`.
+- Gang: `gang.js`.
+- Corp: `corp/`.
+- Stanek: `stanek-*.js`.
+- Sharing: `share.js`.
+
+## Opening plan, BitNode-neutral
 
 Baseline practical opener:
 
@@ -78,7 +92,7 @@ run rootall.js
 run deployall.js basic-hack.js n00dles
 ```
 
-Then:
+Then buy TOR/programs when cash allows, reroot, and reconsider target:
 
 ```text
 City → Alpha Enterprises → buy TOR
@@ -88,28 +102,11 @@ run best-target.js
 run deployall.js basic-hack.js <target>
 ```
 
-### Why n00dles first?
+`n00dles` is often better than it looks in the mud phase: high growth, low security, high hack chance, and fast feedback. `best-target.js` becomes more reliable after port openers/RAM are available. If a target appears stuck prepping under `basic-hack.js`, fall back to an easier target.
 
-`best-target.js` may recommend `foodnstuff` or `sigma-cosmetics` quickly, but `basic-hack.js` is a blunt loop and better-looking targets may spend a long time prepping. `n00dles` is operationally good for the mud phase:
+## Program, TOR, and darknet plan
 
-- very high growth,
-- low security,
-- easy refill,
-- high hack chance,
-- fast enough cycles,
-- immediate money/XP feedback.
-
-Use `n00dles` until the first few unlocks/home upgrades if impatience or reliability matters.
-
-## University study
-
-Free Computer Science at Rothman University gives hacking XP. If there is no other task available like working for a faction, study comp sci.
-
-Before sleeping for the next round, focus on the working task unless you have the Tian Di Hui augment which removes the penalty.
-
-## Program acquisition
-
-Prefer buying TOR + programs over creating programs in fresh BN1, once income exists.
+Prefer buying TOR + programs once hacking income is established. Creating programs is usually only attractive when cash is severely constrained, the BitNode changes economics, or the agent needs a specific opener immediately.
 
 Priority:
 
@@ -120,9 +117,8 @@ FTPCrack.exe
 relaySMTP.exe
 HTTPWorm.exe
 SQLInject.exe
+Formulas.exe when batch precision or late-game automation justifies the price
 ```
-
-Some darkweb programs are less useful to an agent than to a human, but in BN1 the darknet can be a worthwhile cash source. Once free cash is around `$50m`, consider buying `DarkscapeNavigator.exe`, pushing/running `dnet-crawl.js`, and opening `.cache` files for extra money.
 
 After every new port opener:
 
@@ -132,92 +128,40 @@ run best-target.js
 run deployall.js basic-hack.js <target>
 ```
 
-## Target selection
+Darknet notes:
 
-`best-target.js` scores rooted viable servers by:
+- TOR is bought through city UI, not terminal: `City → Alpha Enterprises → Purchase TOR router`.
+- After TOR, `buy -a` purchases affordable darkweb programs.
+- `DarkscapeNavigator.exe` can unlock darknet/cache exploration. Buy it when the cost is small relative to current income or when a BitNode rewards darknet work.
+- After buying it, run `dnet-crawl.js` (or `dnet-crawl-bn15.js` in BN15-specific contexts) and inspect/open cache files for extra money/opportunities.
 
-```js
-maxMoney * hackAnalyzeChance * log1p(serverGrowth) / weakenTime
-```
+## Hacking income progression
 
-This is grounded in actual Netscript mechanics, but it is not perfect for the very early `basic-hack.js` phase because it does not fully model prep time/current money/current security/thread budget.
+1. **Bootstrap:** `basic-hack.js` on `n00dles` or another easy server.
+2. **Expansion:** buy port openers, reroot, redeploy to a better target.
+3. **Batch transition:** when enough RAM exists, run `fleet-hwgw.js`.
+4. **Formulas transition:** after `Formulas.exe`, consider `fleet-hwgw-formulas.js`.
+5. **Purchased servers:** buy/upgrade when RAM is the bottleneck and port programs/root coverage are good.
 
-Current heuristic:
-
-- **Bootstrap phase**: `n00dles` is acceptable/preferred for reliable early flow.
-- **After TOR + port openers + more RAM**: trust `best-target.js` more.
-- **Before fleet HWGW**: if target feels stuck prepping, fall back to easier target.
-
-Potential future improvement: add `--bootstrap` mode to `best-target.js` that heavily rewards current money, short weaken time, high hack chance, and refill ease.
-
-## Home RAM, hacked-server RAM, and fleet transition
-
-`fleet-hwgw.js` costs about `11.1 GB` RAM, so it needs at least one or two home RAM upgrades if run from `home`. However, rooted non-home servers can have useful RAM too. If a rooted hacked server has enough RAM, the fleet controller can run there instead of waiting for home upgrades.
-
-Home-hosted transition condition:
-
-```text
-home RAM sufficient for fleet-hwgw.js + reserve
-```
-
-Then:
+Fleet controller examples:
 
 ```text
 run fleet-hwgw.js <best-target> --reserve 8
+run fleet-hwgw-formulas.js <best-target> --reserve 8
 ```
 
-Non-home controller option:
+The `--reserve` flag mainly protects `home` command/control RAM. If running a controller off-home, account for controller-host RAM separately.
 
-```text
-scp fleet-hwgw.js batchhack.js batchgrow.js batchweaken.js <host>
-connect <host>
-run fleet-hwgw.js <best-target> --reserve 8
-home
-```
-
-The current `--reserve` only reserves RAM on `home`. This is intentional because `home` is the command/control machine and should not be filled with batch workers if we need to run `rootall.js`, `best-target.js`, `purchase-servers.js`, etc. If running the controller off-home, its own used RAM is naturally accounted for by `getServerUsedRam`, but there is no extra controller-host reserve.
-
-If fleet is not viable yet, continue with:
-
-```text
-run deployall.js basic-hack.js <target>
-```
-
-To clear worker state across rooted servers:
+To clear worker state:
 
 ```text
 run killall.js
 run killall.js --include-home
 ```
 
-## TOR and vendor UI
+## Factions and augmentations
 
-TOR is bought through city UI, not terminal:
-
-```text
-City → Alpha Enterprises → Purchase TOR router
-```
-
-Then terminal:
-
-```text
-buy -a
-```
-
-## Faction strategy
-
-### Hacking factions
-
-BN1 should focus on the hacker faction chain. Unlocks are via backdooring special servers; exact hacking requirements vary somewhat by run, but approximate thresholds are:
-
-```text
-CyberSec        → backdoor CSEC          (~51 hacking)
-NiteSec         → backdoor avmnite-02h   (~202 hacking)
-The Black Hand  → backdoor I.I.I.I       (~340 hacking)
-BitRunners      → backdoor run4theh111z  (~505 hacking)
-```
-
-Operational loop:
+General loop:
 
 ```text
 run rootall.js
@@ -228,43 +172,69 @@ home
 accept faction invite
 ```
 
-For wall-clock efficiency, do not assume we should always wait for BitRunners before the first install. AFK play can make that natural, but agent play should probably install earlier when high-impact cheap/mid-cost augments are ready.
-
-### City factions
-
-City-faction lockout is only for the current life; after installing augmentations, enemy cities can be swept up in later cycles.
-
-Current hacking-focused city read:
-
-Once money allows travel/invite prerequisites, do not wait too long to travel and pick up high-value non-hacker faction invites. A practical early move is:
+Hacker faction chain, common requirements approximate:
 
 ```text
-Travel → Chongqing
-accept Chongqing invite if eligible
-accept Tian Di Hui invite if eligible
+CyberSec        → backdoor CSEC          (~51 hacking)
+NiteSec         → backdoor avmnite-02h   (~202 hacking)
+The Black Hand  → backdoor I.I.I.I       (~340 hacking)
+BitRunners      → backdoor run4theh111z  (~505 hacking)
 ```
 
-This keeps the first-install city/Tian Di Hui options open while scripts continue earning.
+Do not overfit to BN1. In each BitNode, prioritize factions/augs that accelerate the current win condition:
 
-- **Chongqing first** is strong because of:
-  - `Neuregen Gene Modification` — `hacking_exp 1.4`, about `$375m` / `37.5k rep`.
-  - `DataJack` — `hacking_money 1.25`.
-- **Sector-12 + Aevum later** is a good second-cycle/generalist sweep:
-  - Sector-12: `CashRoot Starter Kit`, `Neuralstimulator` access.
-  - Aevum: `Neurotrainer I`, `Synaptic Enhancement Implant`, `PCMatrix`.
-- **New Tokyo / Ishima** look low-priority for hacking BN1. New Tokyo has `DataJack`, but Chongqing has it plus `Neuregen`; Ishima is mostly combat/dex utility.
-- **Volhaven** is also not a primary hacking pick; mostly combat/company/social utility.
+- hacking BitNodes: hacking XP, hacking speed, money, faction rep, Hacknet/server RAM support,
+- gang/combat BitNodes: combat/gang/faction utility may beat pure hacking,
+- corp/stock BitNodes: money multipliers and system-specific unlocks may dominate,
+- high-penalty BitNodes: cheap early augments can be worth installing sooner.
 
-Expensive city/Tian Di Hui augs need wall-clock scrutiny:
+Before buying augmentations, make a global list across joined factions, then buy from most expensive to least expensive. Install when the expected multiplier gain is worth resetting money/scripts/rep progress, not merely because one cheap augmentation is affordable.
 
-- `Neuralstimulator` is useful but pricey: about `$3b` / `50k rep`; likely not a default first-install target unless already rich.
-- `Neuroreceptor Management Implant` from Tian Di Hui removes unfocused work penalties, but costs about `$550m` / `75k rep`. Great for human AFK convenience, less obviously optimal for an agent that can focus/switch deliberately. Default agent strategy: skip first-cycle Neuroreceptor unless it does not significantly delay install.
+City-faction lockout lasts only for the current life. Pick a city deliberately based on available augs and current goal. Common hacking-friendly picks include Chongqing/Tian Di Hui early and Sector-12/Aevum in later cycles, but verify current needs instead of treating BN1 preferences as universal.
 
-### Crime
+## Work, study, and focus
 
-Generally ignore crime in fresh BN1. It is not the natural fastest lane for breaking BN1. Crime factions have some hacking augs, but the direct hacker-faction path is usually better.
+Keep all manual/foreground work decisions here. Scripts should handle money in the background; the player's active work should usually target the current bottleneck.
 
-Use crime only for a specific desired augmentation or if intentionally exploring.
+Work priority:
+
+1. **Faction work for selected augmentations** — default best use of focused time once a useful faction is joined. Pick the faction based on the next desired augmentation(s), not just highest current rep.
+2. **Company work for unlocks or company augmentations** — only when a company faction/invite or company-specific augmentation is part of the plan. Otherwise it is usually slower than direct faction work for a hacking-focused run.
+3. **University study / training** — use free Computer Science for hacking XP when no useful faction/company work is available, or when the next unlock is gated mostly by hacking level. Use other classes/gyms only for a specific requirement.
+4. **Crime** — generally not a default work lane for hacking BitNodes. Use it for crime-faction invites, combat stats, karma/gang setup, or BitNodes where crime is favored.
+5. **Do nothing / wait** — acceptable only when scripts/side systems are doing the real work and active work would add negligible value.
+
+Focus rules:
+
+- By default, assume unfocused work is penalized. Before long waits/sleeps, focus the highest-value current work.
+- The key exception is **Neuroreceptor Management Implant** from **Tian Di Hui** (`75k` rep / `$550m` base cost), whose stat text says it removes the penalty for not focusing on jobs/faction work. After installing it, unfocused work becomes much safer while the agent uses the UI/terminal.
+- Before that implant, briefly unfocus only when agent attention is needed for UI-heavy tasks, then return to focused work afterward.
+- Recheck work after buying/installing augmentations, joining factions, reaching new hacking thresholds, or changing BitNode goals.
+
+Faction-work loop:
+
+```text
+inspect joined factions and available augmentations
+choose next desired augmentation bundle
+work for the faction with the most valuable reachable bundle
+use share.js if faction rep is the bottleneck and spare RAM exists
+stop/switch once required rep is reached or another bottleneck dominates
+```
+
+Periodically check pending faction invites manually, especially if notification popups are disabled.
+
+## Side-system triage
+
+Treat side systems as optional engines. Start them only when unlocked and expected payoff beats simply improving hacking/faction progress.
+
+- **IPvGO:** run `go-one-ply.js` for cheap/basic play; try `go-lookahead.js` or `go-monte-carlo.js` when RAM/time allows. Re-evaluate payoff by BitNode; GO can be useful passive value but should not starve core hacking in the opener.
+- **Darknet:** after `DarkscapeNavigator.exe`, run crawler/cache workflow. Stronger in BitNodes or states where cache rewards are material.
+- **Contracts:** run `find-contracts.js` / `solve-contracts.js` when home RAM is free enough; contracts are usually worthwhile one-shots.
+- **Stocks:** use `stocks.js` only when market access/seed money/forecast info make it worthwhile. Use `liquidate-stocks.js` before installs or when cash is needed.
+- **Gang:** if available, `gang.js` may become the main progression engine; do not ignore it in gang-favorable BitNodes.
+- **Corporation:** use `corp/` only when corp is unlocked/affordable or central to the BitNode.
+- **Stanek:** use `stanek-*.js` in Stanek-relevant runs; otherwise skip until it is clearly beneficial.
+- **Share:** `share.js` is useful when faction reputation is the bottleneck and spare RAM exists.
 
 ## UI / notification hygiene
 
@@ -274,56 +244,36 @@ Bitburner notification popups can block or confuse `agent-browser` clicks and sn
 Options → Gameplay → disable unwanted notifications
 ```
 
-If faction invite notifications are disabled, the agent must remember to periodically check and accept invites manually:
+If faction invite notifications are disabled, periodically inspect the Factions tab and accept invites manually.
 
-```text
-Factions tab → accept pending faction invitations
-```
+## Standard agent round
 
-Add this especially after a successful `backdoor` on faction servers. The loop should also occasionally inspect the Factions tab even without visible popups.
-
-## Agent loop
-
-Use an explicit round checklist because BN1 has many simultaneous tracks.
-
-### Round checklist
-
-1. **Status / drift**
-   - money, hacking level, home RAM,
+1. **Observe**
+   - money, hacking level, home RAM/cores,
    - current work/focus state,
-   - current factions and pending invites,
-   - running scripts / active target,
-   - visible errors or notification modals.
-2. **Income engine**
-   - ensure `fleet-hwgw.js` or the fallback `basic-hack.js n00dles` is running,
+   - joined factions, invites, useful aug rep/cost,
+   - running scripts and active target,
+   - port opener/TOR/darknet/Formulas status,
+   - visible errors/modals,
+   - side systems worth using now.
+2. **Stabilize income**
+   - ensure hacking scripts are running,
    - inspect target prep if income stalls,
-   - choose target deliberately (`n00dles` for reliability, `best-target.js`/server-info for experiments),
-   - keep dnet crawler running after `DarkscapeNavigator.exe` is bought.
-3. **Faction rep lane**
-   - track current useful rep: Chongqing for `Neuregen`, Tian Di Hui for Neuroreceptor/social utility, hacker factions for cheap hacking augs,
-   - switch focused work when the current faction has enough rep for near-term desired augs,
-   - always focus before long sleeps.
-4. **Unlocks / expansion**
-   - buy available programs (`buy -a`) when cash allows,
-   - after every new port opener: `run rootall.js`, then reconsider target and backdoors,
-   - backdoor hacker-faction servers when hacking level/root permits.
-5. **One-shot opportunities**
-   - run `find-contracts.js` / `solve-contracts.js` when home RAM is free enough,
-   - run darknet cache/crawler work after `DarkscapeNavigator.exe`,
-   - consider home RAM upgrades when they unlock useful script freedom.
-6. **Next-system questions**
-   - purchased servers once programs/root coverage are good and RAM is the bottleneck,
-   - `fleet-hwgw-formulas.js` after `Formulas.exe`,
-   - IPvGO automation if/when its payoff beats simple money/rep progression.
+   - upgrade target/controller only when it improves expected income.
+3. **Expand unlocks**
+   - buy programs when affordable,
+   - reroot and backdoor newly accessible faction servers,
+   - upgrade home/purchased servers when RAM is constraining automation.
+4. **Progress reputation/augs**
+   - pick focused work deliberately,
+   - use `share.js` if spare RAM can speed rep,
+   - buy/install only at a sensible reset point.
+5. **Harvest one-shots/side systems**
+   - contracts, darknet caches, IPvGO moves, stock liquidation, etc.
+6. **Leave a clean handoff**
+   - note active target/scripts, current work, next desired unlock, and any UI state that matters.
 
-A turn looks like:
-
-1. Observe using the checklist above.
-2. Decide one or two safe actions.
-3. Execute via terminal/UI.
-4. Focus useful work and wait/poll.
-
-Example loop actions:
+Example actions:
 
 ```text
 if no scripts running / early state:
@@ -341,13 +291,17 @@ if new programs acquired:
 
 if enough home RAM:
   run fleet-hwgw.js <target> --reserve 8
+
+if DarkscapeNavigator.exe is owned:
+  run dnet-crawl.js
+
+if IPvGO is worth using:
+  run go-one-ply.js  # or lookahead/monte-carlo variant
 ```
 
-Keep actions mostly idempotent. `rootall.js` and `best-target.js` are safe to repeat. `deployall.js` intentionally kills/restarts scripts on workers, so avoid spamming it unless roots/target changed.
+## Historical notes from first BN1 live run
 
-## Notes from first live run
-
-Observed state after some runtime:
+These observations are not universal strategy, but may help explain past choices:
 
 - Hacking reached 60+ from studying/scripts.
 - Bought TOR from Alpha Enterprises.
@@ -357,11 +311,3 @@ Observed state after some runtime:
 - Redeployed `basic-hack.js` to `sigma-cosmetics` after root expansion.
 
 Open question: whether `sigma-cosmetics` is actually better than staying on `n00dles` until first home upgrades under `basic-hack.js` prep constraints.
-
-## When should I buy and install Augmentations?
-
-Periodically evaluate joined factions and their available augmentations. If we can buy all high-value augmentations needed for the current BitNode goal, buy them and install.
-
-Before purchasing, make a global purchase list across all joined factions, then buy from most expensive to least expensive. This preserves money for the largest prerequisites and avoids accidentally delaying an expensive target by buying cheap augmentations first.
-
-Do not install just because one augmentation is affordable. Install when the expected post-install multiplier gain is worth resetting current money/scripts/rep progress, or when the remaining high-value augmentations for the current BitNode would take too long to reach.
