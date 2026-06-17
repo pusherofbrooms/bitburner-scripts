@@ -2,6 +2,40 @@
 
 Living notes for using pi + agent-browser + the Bitburner bridge to play and eventually break BN1.
 
+## Fresh agent handoff
+
+Assume a new handoff is probably a new BN1 game, but verify state before acting.
+
+Useful local context:
+
+- Bitburner source clone: `~/ai/bitburner-src/`
+- Bridge project: `~/ai/pi-bitburner-bridge/`
+- This repo contains local scripts to push to Bitburner `home`.
+- Default in-game server for script pushes is `home`.
+
+First checks:
+
+```text
+bb_status
+bb_list_files home
+bb_get_all_servers
+agent-browser --session <name> snapshot -i -c
+```
+
+Do not assume freshness if a game is already open. Check:
+
+- money and hacking level,
+- current activity,
+- rooted servers,
+- installed/bought programs,
+- whether TOR has been purchased,
+- current factions and pending faction invites,
+- running scripts if `pi-agent.js` is available.
+
+Prefer not to run `pi-agent.js` early unless home RAM is plentiful. Use `agent-browser` terminal typing for early commands, and use the Remote API for file pushes/server metadata.
+
+Release caveat: the web game is release Bitburner, while `~/ai/bitburner-src/` may be dev head. Use source for mechanics/API guidance, but verify live behavior when uncertain.
+
 ## Control model
 
 Use a hybrid approach:
