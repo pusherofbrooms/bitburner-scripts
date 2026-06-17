@@ -44,8 +44,6 @@ Do not assume freshness if a game is already open. Check:
 
 Prefer not to run `pi-agent.js` early unless home RAM is plentiful. Use `agent-browser` terminal typing for early commands, and use the Remote API for file pushes/server metadata.
 
-Release caveat: the web game is release Bitburner, while `~/ai/bitburner-src/` may be dev head. Use source for mechanics/API guidance, but verify live behavior when uncertain.
-
 ## Control model
 
 Use a hybrid approach:
@@ -58,7 +56,7 @@ Avoid `pi-agent.js` at the very start: it costs home RAM. Use it later after hom
 
 ## Current early/mid scripts
 
-Useful repo scripts pushed to `home`:
+Useful early game scripts to push to `home`:
 
 - `rootall.js` — root everything currently possible.
 - `basic-hack.js` — simple weaken/grow/hack loop.
@@ -105,21 +103,9 @@ Use `n00dles` until the first few unlocks/home upgrades if impatience or reliabi
 
 ## University study
 
-Free Computer Science at Rothman University gives hacking XP, but early timing gains are damped by Bitburner's formula:
+Free Computer Science at Rothman University gives hacking XP. If there is no other task available like working for a faction, study comp sci.
 
-```js
-time ∝ 1 / (hacking + 50)
-```
-
-For `foodnstuff`, hack level 1 → 30 only changes weaken time from roughly `206s` to `131s`. Useful, but not worth sitting idle.
-
-Preferred rule:
-
-```text
-scripts running > free comp-sci study > idle
-```
-
-If possible, study simultaneously while scripts run. When sleeping/waiting for progress, click **Focus** on the current study/work/faction task first unless there is a reason to keep the UI interactive; otherwise Bitburner applies the unfocused-efficiency penalty.
+Before sleeping for the next round, focus on the working task unless you have the Tian Di Hui augment which removes the penalty.
 
 ## Program acquisition
 
