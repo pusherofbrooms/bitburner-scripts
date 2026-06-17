@@ -119,7 +119,7 @@ Preferred rule:
 scripts running > free comp-sci study > idle
 ```
 
-If possible, study simultaneously while scripts run.
+If possible, study simultaneously while scripts run. When sleeping/waiting for progress, click **Focus** on the current study/work/faction task first unless there is a reason to keep the UI interactive; otherwise Bitburner applies the unfocused-efficiency penalty.
 
 ## Program acquisition
 
