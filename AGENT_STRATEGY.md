@@ -371,3 +371,11 @@ Observed state after some runtime:
 - Redeployed `basic-hack.js` to `sigma-cosmetics` after root expansion.
 
 Open question: whether `sigma-cosmetics` is actually better than staying on `n00dles` until first home upgrades under `basic-hack.js` prep constraints.
+
+## When should I buy and install Augmentations?
+
+Periodically evaluate joined factions and their available augmentations. If we can buy all high-value augmentations needed for the current BitNode goal, buy them and install.
+
+Before purchasing, make a global purchase list across all joined factions, then buy from most expensive to least expensive. This preserves money for the largest prerequisites and avoids accidentally delaying an expensive target by buying cheap augmentations first.
+
+Do not install just because one augmentation is affordable. Install when the expected post-install multiplier gain is worth resetting current money/scripts/rep progress, or when the remaining high-value augmentations for the current BitNode would take too long to reach.
