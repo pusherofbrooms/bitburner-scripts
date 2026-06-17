@@ -22,6 +22,21 @@ bb_get_all_servers
 agent-browser --session <name> snapshot -i -c
 ```
 
+For Bitburner UI sessions, prefer an explicit persistent Chrome profile so closing/reopening `agent-browser` does not lose browser-side game/session data:
+
+```text
+agent-browser --session bitburner --profile ~/.agent-browser-profiles/bitburner open <bitburner-url>
+agent-browser --session bitburner close
+```
+
+Notes:
+
+- `--session <name>` names the live agent-browser daemon/session; it is not, by itself, durable storage.
+- `--profile <path>` gives Chrome a persistent profile directory and preserves full browser state across restarts.
+- `--session-name <name>` auto-saves/restores cookies + localStorage under `~/.agent-browser/sessions/`, but is narrower than a profile.
+- Do not run `agent-browser state clear` / `state clear --all` unless intentionally deleting saved state.
+- If `agent-browser` becomes unresponsive while the visible Bitburner UI still works, a close/reopen of the agent-browser session may be the safest recovery; using a persistent `--profile` first prevents that recovery step from losing browser-side state.
+
 If the bridge is listening but not connected, connect it in-game:
 
 ```text
