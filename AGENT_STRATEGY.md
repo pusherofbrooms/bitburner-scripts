@@ -298,16 +298,44 @@ Add this especially after a successful `backdoor` on faction servers. The loop s
 
 ## Agent loop
 
+Use an explicit round checklist because BN1 has many simultaneous tracks.
+
+### Round checklist
+
+1. **Status / drift**
+   - money, hacking level, home RAM,
+   - current work/focus state,
+   - current factions and pending invites,
+   - running scripts / active target,
+   - visible errors or notification modals.
+2. **Income engine**
+   - ensure `fleet-hwgw.js` or the fallback `basic-hack.js n00dles` is running,
+   - inspect target prep if income stalls,
+   - choose target deliberately (`n00dles` for reliability, `best-target.js`/server-info for experiments),
+   - keep dnet crawler running after `DarkscapeNavigator.exe` is bought.
+3. **Faction rep lane**
+   - track current useful rep: Chongqing for `Neuregen`, Tian Di Hui for Neuroreceptor/social utility, hacker factions for cheap hacking augs,
+   - switch focused work when the current faction has enough rep for near-term desired augs,
+   - always focus before long sleeps.
+4. **Unlocks / expansion**
+   - buy available programs (`buy -a`) when cash allows,
+   - after every new port opener: `run rootall.js`, then reconsider target and backdoors,
+   - backdoor hacker-faction servers when hacking level/root permits.
+5. **One-shot opportunities**
+   - run `find-contracts.js` / `solve-contracts.js` when home RAM is free enough,
+   - run darknet cache/crawler work after `DarkscapeNavigator.exe`,
+   - consider home RAM upgrades when they unlock useful script freedom.
+6. **Next-system questions**
+   - purchased servers once programs/root coverage are good and RAM is the bottleneck,
+   - `fleet-hwgw-formulas.js` after `Formulas.exe`,
+   - IPvGO automation if/when its payoff beats simple money/rep progression.
+
 A turn looks like:
 
-1. Observe state:
-   - bridge status,
-   - files,
-   - rooted servers,
-   - visible money/hack/activity via browser snapshot.
+1. Observe using the checklist above.
 2. Decide one or two safe actions.
 3. Execute via terminal/UI.
-4. Wait/poll.
+4. Focus useful work and wait/poll.
 
 Example loop actions:
 
