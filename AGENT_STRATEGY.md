@@ -248,6 +248,16 @@ City-faction lockout is only for the current life; after installing augmentation
 
 Current hacking-focused city read:
 
+Once money allows travel/invite prerequisites, do not wait too long to travel and pick up high-value non-hacker faction invites. A practical early move is:
+
+```text
+Travel → Chongqing
+accept Chongqing invite if eligible
+accept Tian Di Hui invite if eligible
+```
+
+This keeps the first-install city/Tian Di Hui options open while scripts continue earning.
+
 - **Chongqing first** is strong because of:
   - `Neuregen Gene Modification` — `hacking_exp 1.4`, about `$375m` / `37.5k rep`.
   - `DataJack` — `hacking_money 1.25`.
