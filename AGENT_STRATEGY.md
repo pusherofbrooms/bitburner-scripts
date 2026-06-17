@@ -53,6 +53,17 @@ Use a hybrid approach:
 - **agent-browser headed mode**: UI actions, terminal commands, city/vendor/faction/course/interactions, visual supervision.
 - **Netscript**: actual grind/income/scaling.
 
+Automation bias: if a task can be safely automated with Netscript, prefer a script over repeated manual/agent-browser actions. This reduces cognitive load, makes handoffs cleaner, and keeps the agent focused on decisions rather than UI chores. Singularity-gated actions may still need UI/terminal control until the needed Source-File/API access exists, but non-Singularity automation should be built or used aggressively.
+
+Good automation candidates before Singularity:
+
+- rooting/scanning/pathfinding/server info,
+- target scoring and worker deployment,
+- purchased-server buying/upgrading,
+- coding contract discovery/solving,
+- stock, gang, corp, Hacknet, IPvGO, Stanek, and darknet workflows when their APIs are available,
+- reporting dashboards that summarize money, work, factions, targets, and next bottlenecks.
+
 Prefer idempotent actions. `rootall.js`, `best-target.js`, `scanall.js`, `find-contracts.js` are safe to repeat. `deployall.js` and `killall.js` intentionally restart/stop workers, so avoid spamming them unless roots, target, or script choice changed.
 
 ## Script inventory
@@ -158,6 +169,33 @@ To clear worker state:
 run killall.js
 run killall.js --include-home
 ```
+
+## Augmentation install lifecycle
+
+Treat augmentation purchase/install as a deliberate lifecycle, not an opportunistic click. Purchased augmentations give no benefit until installed, and every augmentation purchase doubles the price of later augmentation purchases in the same life. Costs reset after installation.
+
+Default policy:
+
+1. **Normal life: do not buy augmentations yet.** Earn money/rep, unlock factions, improve income, and track candidate augmentations.
+2. **Decide the life is ending.** Stop chasing long-tail goals unless they are close and high-value.
+3. **Pre-install spending first.** Upgrade home RAM/cores as much as desired for the next cycle before spending money on queued augmentations. Home RAM/core upgrades persist through augmentation installs.
+4. **Liquidate/spend transient resources.** Sell stocks if relevant; spend hashes or other reset-prone side resources where useful.
+5. **Buy the selected augmentation bundle.** Respect prerequisites, then buy desired augmentations from most expensive/highest-value down to cheapest filler.
+6. **Install immediately.** Do not leave expensive queued augmentations sitting around unless there is a very specific reason.
+7. **Post-install recovery.** Rerun the opener: start income scripts, reroot, rebuy TOR/programs as needed, rejoin/backdoor factions, choose focused work.
+
+What resets on augmentation install, per current source/docs:
+
+- **Lost/reset:** money, skills/XP, current work, jobs, faction memberships/invites except special keep-on-install factions, faction/company reputation converted to favor, purchased servers, Hacknet nodes, stocks, TOR router, programs, scripts on non-home servers, running scripts.
+- **Kept:** installed augmentations, scripts/files on `home`, home RAM/core upgrades, and stock market account/API access when already unlocked.
+- **Conditional exceptions:** some installed augmentations grant starting money/programs; Source-File/BitNode feature unlocks can also grant things after reset. For example, source shows `Formulas.exe` is restored only when the relevant BitNode feature is accessible, and Darkscape Navigator is restored only when the BN15 feature is accessible. Do not assume programs or `Formulas.exe` persist by default.
+
+Install timing heuristics:
+
+- Install when the next-life multiplier gain is worth losing current money/rep/scripts, or when current-life progress has slowed badly.
+- Prefer a coherent bundle over a single cheap augmentation unless the BitNode strongly rewards rapid resets.
+- Do not delay forever waiting for one expensive augmentation if several cheaper high-impact installs would greatly accelerate the next cycle.
+- Before buying, inspect all joined factions and build a global target list. Cheap filler is fine only after the main targets and home upgrades are secured.
 
 ## Factions and augmentations
 
