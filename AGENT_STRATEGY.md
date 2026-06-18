@@ -1,6 +1,8 @@
 # Agent Strategy Notes: Bitburner Automation
 
-Living handoff notes for using pi + agent-browser + the Bitburner bridge to play Bitburner. Keep this file BitNode-neutral: prefer repeatable observation, safe automation, and only specialize when the current BitNode mechanics justify it.
+Living handoff notes for using pi + agent-browser + the Bitburner bridge to start, resume, and manage a Bitburner run end-to-end. Keep this file BitNode-neutral: prefer repeatable observation, safe automation, and only specialize when the current BitNode mechanics justify it.
+
+Core objective: a coding agent should be able to open or recover a headed Bitburner browser session, connect the bridge, inspect current game state, push/run scripts, make progression decisions, and leave enough state for the next agent to continue.
 
 ## Fresh agent handoff
 
@@ -13,29 +15,19 @@ Local context:
 - This repo contains local scripts to push to Bitburner `home`.
 - Default in-game server for script pushes is `home`.
 
-First checks:
-
-```text
-bb_status
-bb_list_files home
-bb_get_all_servers
-agent-browser --session <name> snapshot -i -c
-```
-
-For Bitburner UI sessions, prefer an explicit persistent Chrome profile so closing/reopening `agent-browser` does not lose browser-side game/session data:
+Preferred headed launch/resume:
 
 ```text
 agent-browser --session bitburner --profile ~/.agent-browser-profiles/bitburner open <bitburner-url>
-agent-browser --session bitburner close
+agent-browser --session bitburner snapshot -i -c
+bb_status
+bb_list_files home
+bb_get_all_servers
 ```
 
-Notes:
+Use the same `--profile` every time. It gives Chrome durable browser state across agent/browser restarts. `--session <name>` only names the live agent-browser daemon/session; it is not durable storage by itself. `--session-name <name>` persists cookies + localStorage under `~/.agent-browser/sessions/`, but is narrower than a full Chrome profile.
 
-- `--session <name>` names the live agent-browser daemon/session; it is not, by itself, durable storage.
-- `--profile <path>` gives Chrome a persistent profile directory and preserves full browser state across restarts.
-- `--session-name <name>` auto-saves/restores cookies + localStorage under `~/.agent-browser/sessions/`, but is narrower than a profile.
-- Do not run `agent-browser state clear` / `state clear --all` unless intentionally deleting saved state.
-- If `agent-browser` becomes unresponsive while the visible Bitburner UI still works, a close/reopen of the agent-browser session may be the safest recovery; using a persistent `--profile` first prevents that recovery step from losing browser-side state.
+Never run `agent-browser state clear` / `state clear --all` unless intentionally deleting saved state. If `agent-browser` becomes unresponsive while the visible Bitburner UI still works, close/reopen the agent-browser session with the same persistent profile.
 
 If the bridge is listening but not connected, connect it in-game:
 
@@ -46,6 +38,25 @@ Port: 12525
 Use wss: off
 Click Connect
 ```
+
+Fresh-game bootstrap:
+
+```text
+# after bridge connects and scripts exist on home
+run rootall.js
+run deployall.js basic-hack.js n00dles
+# then use UI for early study/work if useful, and buy TOR/programs when affordable
+```
+
+If local scripts are missing in-game, push the needed files from this repo to `home` via `bb_push_file` before running them.
+
+Resume-after-interruption checklist:
+
+1. Reopen headed browser with the same persistent `--profile`.
+2. Take a snapshot and clear blocking modals/popups if safe.
+3. Check `bb_status`; reconnect Remote API in-game if needed.
+4. Inspect files, known servers, running scripts, money, work/focus, factions, programs, and current target.
+5. Continue from observed state; do not assume the previous plan is still valid.
 
 State to inspect before choosing actions:
 
@@ -111,14 +122,7 @@ Side systems:
 
 ## Opening plan, BitNode-neutral
 
-Baseline practical opener:
-
-```text
-run rootall.js
-run deployall.js basic-hack.js n00dles
-```
-
-Then buy TOR/programs when cash allows, reroot, and reconsider target:
+After the bootstrap, buy TOR/programs when cash allows, reroot, and reconsider target:
 
 ```text
 City → Alpha Enterprises → buy TOR
