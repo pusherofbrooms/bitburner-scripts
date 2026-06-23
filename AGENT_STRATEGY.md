@@ -98,11 +98,11 @@ Core hacking/scaling:
 
 - `rootall.js` — root everything currently possible.
 - `basic-hack.js` — simple weaken/grow/hack loop.
-- `deployall.js` — copy and run a script on rooted worker servers.
+- `deployall.js` — copy and run a script on rooted public worker servers; early-game only, skips `home` and `pserv-*`.
 - `best-target.js`, `server-info.js` — target scoring/inspection.
-- `fleet-hwgw.js` + `batchhack.js`/`batchgrow.js`/`batchweaken.js` — coordinated HWGW fleet.
-- `fleet-hwgw-formulas.js` — formulas-aware fleet controller after `Formulas.exe`.
-- `purchase-servers.js`, `upgrade-server.js` — purchased-server scaling.
+- `fleet-hwgw.js` + `batchhack.js`/`batchgrow.js`/`batchweaken.js` — coordinated HWGW fleet across rooted RAM, including cloud servers.
+- `fleet-hwgw-formulas.js` — formulas-aware fleet controller after `Formulas.exe`; supports `--all` multi-target mode.
+- `purchase-servers.js`, `upgrade-server.js` — cloud-server scaling via current `ns.cloud.*` APIs.
 - `killall.js` — kill scripts on rooted servers; skips `home` unless `--include-home`.
 
 Discovery/utilities:
@@ -168,19 +168,22 @@ Darknet notes:
 ## Hacking income progression
 
 1. **Bootstrap:** `basic-hack.js` on `n00dles` or another easy server.
-2. **Expansion:** buy port openers, reroot, redeploy to a better target.
-3. **Batch transition:** when enough RAM exists, run `fleet-hwgw.js`.
-4. **Formulas transition:** after `Formulas.exe`, consider `fleet-hwgw-formulas.js`.
-5. **Purchased servers:** buy/upgrade when RAM is the bottleneck and port programs/root coverage are good.
+2. **Expansion:** buy port openers, reroot, redeploy public rooted workers to a better target.
+3. **Cloud RAM:** buy/upgrade cloud servers when RAM is the bottleneck; do not rely on `deployall.js` to use them.
+4. **Batch transition:** when enough RAM exists, run `fleet-hwgw.js`.
+5. **Formulas transition:** after `Formulas.exe`, prefer `fleet-hwgw-formulas.js`, usually in `--all` mode.
 
 Fleet controller examples:
 
 ```text
 run fleet-hwgw.js <best-target> --reserve 8
 run fleet-hwgw-formulas.js <best-target> --reserve 8
+run fleet-hwgw-formulas.js --all --targetLimit 8 --reserve 8
 ```
 
 The `--reserve` flag mainly protects `home` command/control RAM. If running a controller off-home, account for controller-host RAM separately.
+
+Cloud-server caution: `purchase-servers.js` is not fully idempotent. Current Bitburner `ns.cloud.purchaseServer()` auto-renames on hostname collision, so inspect existing cloud servers before rerunning purchase commands. Prefer `upgrade-server.js` for known existing servers.
 
 To clear worker state:
 
@@ -303,6 +306,16 @@ Options → Gameplay → disable unwanted notifications
 
 If faction invite notifications are disabled, periodically inspect the Factions tab and accept invites manually.
 
+## Local verification
+
+Use the Nix dev shell for local checks; do not assume global Node/TypeScript tools exist:
+
+```text
+nix develop --command npm run typecheck
+```
+
+Nix can be slow on this machine; use long timeouts before assuming it is hung.
+
 ## Standard agent round
 
 1. **Observe**
@@ -346,8 +359,11 @@ if new programs acquired:
   run best-target.js
   run deployall.js basic-hack.js <target>
 
-if enough home RAM:
+if enough home/cloud RAM:
   run fleet-hwgw.js <target> --reserve 8
+
+if Formulas.exe is owned:
+  run fleet-hwgw-formulas.js --all --targetLimit 8 --reserve 8
 
 if DarkscapeNavigator.exe is owned:
   run dnet-crawl.js
