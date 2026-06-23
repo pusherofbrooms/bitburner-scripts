@@ -107,6 +107,8 @@ Core hacking/scaling:
 
 Discovery/utilities:
 
+- `status.js` — mud-safe common dashboard; keep tiny for fresh BN1.1 home RAM.
+- `status-servers.js`, `status-cloud.js` — optional detail probes with higher RAM/API costs.
 - `path.js`, `scanall.js`, `getServers.js`, `lsall.js`, `psgrep.js`, `player.js`.
 - `find-contracts.js`, `solve-contracts.js`, `contract-desc.js`, `contract-attempt.js`.
 
@@ -319,6 +321,7 @@ Nix can be slow on this machine; use long timeouts before assuming it is hung.
 ## Standard agent round
 
 1. **Observe**
+   - start with `run status.js`; add `run status-servers.js` / `run status-cloud.js` when RAM allows,
    - money, hacking level, home RAM/cores,
    - current work/focus state,
    - joined factions, invites, useful aug rep/cost,
