@@ -7,6 +7,9 @@ Useful context:
 - Bridge project: `~/ai/pi-bitburner-bridge/`
 - Default in-game target server for pushes: `home`
 
+Play the game:
+- AGENT_STRATEGY.md is the strategy doc for you to fully automate play.
+
 Guidelines:
 - Check current Netscript APIs against `~/ai/bitburner-src/src/ScriptEditor/NetscriptDefinitions.d.ts` when unsure.
 - Prefer `bb_push_file` with `localPath` to push completed scripts.
