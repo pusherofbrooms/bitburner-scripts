@@ -20,6 +20,8 @@ export async function main(ns) {
 }
 
 const SCRIPT = "dnet-crawl-bn15.js";
+const LABYRINTH_SCRIPT = "dnet-labyrinth.js";
+const UNLOCK_SCRIPT = "dnet-unlock-ram.js";
 const PASSWORD_DB = "/data/dnet-passwords.txt";
 const HINT_DB = "/data/dnet-hints.txt";
 const DEFAULT_PASSWORDS = ["admin", "password", "0000", "12345"];
@@ -40,6 +42,7 @@ async function solveNeighbor(ns, target, opts) {
   const details = safe(() => ns.dnet.getServerDetails(target), null);
   if (!details || !details.isOnline || !details.isConnectedToCurrentServer) return false;
   recordHint(ns, target, details);
+  if (details.modelId === "(The Labyrinth)") { await launchLabyrinthSolver(ns, target); return false; }
   if (details.hasSession) return true;
   const db = readJson(ns, PASSWORD_DB, {});
   if (typeof db[target] === "string") {
@@ -79,12 +82,11 @@ function makeCandidates(d) {
 }
 
 async function dynamicSolve(ns, target, d, opts) {
-  if (d.modelId === "AccountsManager_4.2") return await solveHigherLower(ns, target, d, opts, false);
-  if (d.modelId === "NIL" || d.modelId === "RateMyPix.Auth") return await solveExactChars(ns, target, d);
-  if (d.modelId === "DeepGreen") return await solveMastermind(ns, target, d, opts);
-  if (d.modelId === "Factori-Os") return await solveNumericBrute(ns, target, d, opts);
-  if (d.modelId === "OpenWebAccessPoint") return await solvePacketSniffer(ns, target, d, opts);
-  if (d.modelId === "KingOfTheHill") return await solveKingOfTheHill(ns, target, d, opts);
+  if (d.modelId === "AccountsManager_4.2") return await solveNumericRangeBrute(ns, target, d, opts);
+  if (d.modelId === "BellaCuore" && d.data.includes(",")) return await solveRomanRangeBrute(ns, target, d, opts);
+  if (d.modelId === "NIL" || d.modelId === "RateMyPix.Auth" || d.modelId === "2G_cellular" || d.modelId === "DeepGreen" || d.modelId === "KingOfTheHill") return await solveSmallBlindBrute(ns, target, d, opts);
+  if (d.modelId === "Factori-Os" || d.modelId === "BigMo%od") return await solveSmallBlindBrute(ns, target, d, opts);
+  if (d.modelId === "OpenWebAccessPoint") return await solvePacketSnifferSafe(ns, target, d, opts);
   return null;
 }
 
@@ -99,6 +101,19 @@ async function solveHigherLower(ns, target, d, opts, roman) {
     if (/Lower|ALTUS NIMIS/i.test(feedback)) hi = guess - 1;
     else if (/Higher|PARUM BREVIS/i.test(feedback)) lo = guess + 1;
     else break;
+  }
+  return null;
+}
+async function solveNumericRangeBrute(ns, target, d, opts) {
+  const max = Math.min(10 ** Math.max(1, d.passwordLength), 1000, opts.maxDynamicAttempts * 20);
+  for (let n = 0; n < max; n++) if (await trySecret(ns, target, String(n))) return String(n);
+  return null;
+}
+async function solveRomanRangeBrute(ns, target, d, opts) {
+  const [a, b] = d.data.split(",").map(romanToInt);
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  for (let n = lo, attempts = 0; n <= hi && attempts < opts.maxDynamicAttempts * 5; n++, attempts++) {
+    if (await trySecret(ns, target, String(n))) return String(n);
   }
   return null;
 }
@@ -119,7 +134,7 @@ async function solveTiming(ns, target, d) {
     const guess = (pass + c).padEnd(d.passwordLength, chars[0]);
     const fb = await attemptWithFeedback(ns, target, guess);
     if (fb.success) return guess;
-    const mismatch = /mismatch while checking each character \((-?\d+)\)/.exec(fb.text);
+    const mismatch = /mismatch while checking each character \((-?\d+)\)/.exec(`${fb.message ?? ""} ${fb.text}`);
     if (mismatch && Number(mismatch[1]) > i) { pass += c; break; }
   }
   return pass;
@@ -134,16 +149,20 @@ async function solveDivisibility(ns, target) {
   }
   return String(n);
 }
-async function solvePacketSniffer(ns, target, d, opts) {
-  for (let i = 0; i < opts.maxDynamicAttempts; i++) {
-    const fb = await attemptWithFeedback(ns, target, "0".repeat(d.passwordLength));
-    if (fb.success) return "0".repeat(d.passwordLength);
-    for (const c of extractLogCandidates(`${fb.data ?? ""} ${fb.message ?? ""} ${fb.text}`, d)) return c;
-  }
-  return null;
+async function solvePacketSnifferSafe(ns, target, d, opts) {
+  // OpenWebAccessPoint's useful packet capture is only exposed through logs/heartbleed.
+  // For the BN15 no-heartbleed challenge, avoid retrying the same probe forever;
+  // only brute-force small numeric passwords and otherwise wait for an external clue.
+  return await solveSmallBlindBrute(ns, target, d, opts);
+}
+async function solveSmallBlindBrute(ns, target, d, opts) {
+  // These models normally need failed-attempt feedback from server logs/heartbleed.
+  // In the BN15 challenge script, only blind brute-force tiny numeric spaces.
+  if (d.passwordFormat !== "numeric" || d.passwordLength > 4) return null;
+  return await solveNumericBrute(ns, target, d, opts);
 }
 async function solveNumericBrute(ns, target, d, opts) {
-  const max = Math.min(10 ** d.passwordLength, opts.maxDynamicAttempts * 20);
+  const max = Math.min(10 ** d.passwordLength, d.passwordLength <= 4 ? 10000 : opts.maxDynamicAttempts * 20);
   for (let n = 0; n < max; n++) {
     const guess = String(n).padStart(d.passwordLength, "0");
     if (await trySecret(ns, target, guess)) return guess;
@@ -195,7 +214,7 @@ async function replicateTo(ns, target, opts) {
   if (opts.verbose) childArgs.push("--verbose");
 
   // Always seed the executable from home. Otherwise old crawlers can re-infect a cleaned node with an old local copy.
-  safe(() => ns.scp(SCRIPT, target, "home"), false);
+  safe(() => ns.scp([SCRIPT, LABYRINTH_SCRIPT, UNLOCK_SCRIPT], target, "home"), false);
   safe(() => ns.scp([PASSWORD_DB, HINT_DB].filter(f => ns.fileExists(f)), target, ns.getHostname()), false);
 
   const procs = safe(() => ns.ps(target).filter(p => p.filename === SCRIPT), []);
@@ -206,6 +225,15 @@ async function replicateTo(ns, target, opts) {
   for (const p of procs) safe(() => ns.kill(p.pid), false);
   const pid = safe(() => ns.exec(SCRIPT, target, 1, ...childArgs), 0);
   if (pid) ns.print(`replicated to ${target} pid=${pid}`);
+  else safe(() => ns.exec(UNLOCK_SCRIPT, target, 1, "--target-free", 12, "--max-attempts", 10, "--then", SCRIPT, ...childArgs), 0);
+}
+async function launchLabyrinthSolver(ns, lab) {
+  const here = ns.getHostname();
+  const args = [lab];
+  safe(() => ns.scp(LABYRINTH_SCRIPT, here, "home"), false);
+  if (safe(() => ns.ps(here).some(p => p.filename === LABYRINTH_SCRIPT && argsEqual(p.args, args)), false)) return;
+  const pid = safe(() => ns.exec(LABYRINTH_SCRIPT, here, 1, ...args), 0);
+  ns.print(pid ? `launched ${LABYRINTH_SCRIPT} for ${lab} pid=${pid}` : `could not launch ${LABYRINTH_SCRIPT} for ${lab} on ${here}`);
 }
 async function lootCurrent(ns, opts) {
   const here = ns.getHostname();

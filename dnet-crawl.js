@@ -80,7 +80,7 @@ function makeCandidates(d) {
 async function dynamicSolve(ns, target, d, opts) {
   if (d.modelId === "AccountsManager_4.2") return await solveHigherLower(ns, target, d, opts, false);
   if (d.modelId === "BellaCuore" && d.data.includes(",")) return await solveHigherLower(ns, target, d, opts, true);
-  if (d.modelId === "Factori-Os") return await solveDivisibility(ns, target);
+  if (d.modelId === "Factori-Os" || d.modelId === "BigMo%od") return await solveNumericBrute(ns, target, d, opts) ?? await solveDivisibility(ns, target);
   if (d.modelId === "NIL" || d.modelId === "RateMyPix.Auth") return await solveExactChars(ns, target, d);
   if (d.modelId === "2G_cellular") return await solveTiming(ns, target, d);
   if (d.modelId === "DeepGreen") return await solveMastermind(ns, target, d, opts);
@@ -118,10 +118,18 @@ async function solveTiming(ns, target, d) {
     const guess = (pass + c).padEnd(d.passwordLength, chars[0]);
     const fb = await attemptWithFeedback(ns, target, guess);
     if (fb.success) return guess;
-    const mismatch = /mismatch while checking each character \((-?\d+)\)/.exec(fb.text);
+    const mismatch = /mismatch while checking each character \((-?\d+)\)/.exec(`${fb.message ?? ""} ${fb.text}`);
     if (mismatch && Number(mismatch[1]) > i) { pass += c; break; }
   }
   return pass;
+}
+async function solveNumericBrute(ns, target, d, opts) {
+  const max = Math.min(10 ** d.passwordLength, d.passwordLength <= 4 ? 10000 : opts.maxDynamicAttempts * 20);
+  for (let n = 0; n < max; n++) {
+    const guess = String(n).padStart(d.passwordLength, "0");
+    if (await trySecret(ns, target, guess)) return guess;
+  }
+  return null;
 }
 async function solveDivisibility(ns, target) {
   let n = 1;
