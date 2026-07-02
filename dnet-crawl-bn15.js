@@ -46,9 +46,12 @@ async function solveNeighbor(ns, target, opts) {
   if (details.hasSession) return true;
   const db = readJson(ns, PASSWORD_DB, {});
   if (typeof db[target] === "string") {
-    const r = safe(() => ns.dnet.connectToSession(target, db[target]), { success: false });
-    if (r === true || r.success) return true;
-    delete db[target]; writeJson(ns, PASSWORD_DB, db); pushHomeState(ns);
+    const secret = db[target];
+    const session = safe(() => ns.dnet.connectToSession(target, secret), { success: false });
+    if (session === true || session.success) return true;
+    const auth = await safeAsync(() => ns.dnet.authenticate(target, secret), { success: false });
+    if (auth.success) return rememberSecret(ns, target, secret, details);
+    if (auth.code === 401) { delete db[target]; writeJson(ns, PASSWORD_DB, db); pushHomeState(ns); }
   }
   const candidates = makeCandidates(details, directHintCandidates(ns, target));
   ns.print(`${target}: ${details.modelId}, ${details.passwordFormat}/${details.passwordLength}, ${candidates.length} static candidates`);
