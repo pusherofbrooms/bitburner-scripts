@@ -50,7 +50,7 @@ async function solveNeighbor(ns, target, opts) {
     if (r === true || r.success) return true;
     delete db[target]; writeJson(ns, PASSWORD_DB, db); pushHomeState(ns);
   }
-  const candidates = makeCandidates(details);
+  const candidates = makeCandidates(details, directHintCandidates(ns, target));
   ns.print(`${target}: ${details.modelId}, ${details.passwordFormat}/${details.passwordLength}, ${candidates.length} static candidates`);
   for (const secret of unique(candidates)) if (await trySecret(ns, target, secret)) return rememberSecret(ns, target, secret, details);
   const dynamic = await dynamicSolve(ns, target, details, opts);
@@ -59,9 +59,9 @@ async function solveNeighbor(ns, target, opts) {
   return false;
 }
 
-function makeCandidates(d) {
+function makeCandidates(d, extra = []) {
   const hint = `${d.passwordHint || ""} ${d.data || ""}`;
-  const out = [];
+  const out = [...extra];
   if (d.modelId === "ZeroLogon") out.push("");
   if (d.modelId === "FreshInstall_1.0") out.push(...DEFAULT_PASSWORDS);
   if (d.modelId === "Laika4") out.push(...DOG_NAMES);
@@ -71,13 +71,13 @@ function makeCandidates(d) {
   if (d.modelId === "CloudBlare(tm)" && d.data) out.push(d.data.replace(/[^0-9]/g, ""));
   if (d.modelId === "110100100" && d.data) out.push(d.data.split(/\s+/).filter(Boolean).map(b => String.fromCharCode(parseInt(b, 2))).join(""));
   if (d.modelId === "OrdoXenos" && d.data) out.push(decodeXor(d.data));
-  if (d.modelId === "OctantVoxel" && d.data.includes(",")) { const [base, encoded] = d.data.split(","); out.push(String(parseBaseN(encoded, Number(base)))); }
+  if (d.modelId === "OctantVoxel" && d.data.includes(",")) { const [base, encoded] = d.data.split(","); out.push(...baseConversionCandidates(encoded, Number(base))); }
   if (d.modelId === "MathML" && d.data) out.push(String(parseArithmetic(d.data)));
   if (d.modelId === "PrimeTime 2" && d.data) out.push(String(largestPrimeFactor(Number(d.data))));
   if (d.modelId === "BellaCuore" && d.data && !d.data.includes(",")) out.push(String(romanToInt(d.data)));
   if (d.modelId === "DeskMemo_3.1") out.push(...literalHints(hint));
   if (d.modelId === "PHP 5.4" && d.data) out.push(...permutations(d.data, 2000));
-  out.push(...extractSecretsFromText(hint));
+  out.push(...processHintText(hint));
   return out.filter(x => candidateFits(d, x)).map(String);
 }
 
@@ -238,11 +238,29 @@ async function launchLabyrinthSolver(ns, lab) {
 async function lootCurrent(ns, opts) {
   const here = ns.getHostname();
   if (ns.dnet.isDarknetServer(here)) {
+    recordLocalFiles(ns, here);
     for (const file of ns.ls(here, ".cache")) safe(() => ns.dnet.openCache(file, false), null);
     if (safe(() => ns.dnet.getBlockedRam(), 0) > 0) await safeAsync(() => ns.dnet.memoryReallocation(), null);
     if (opts.phish) await safeAsync(() => ns.dnet.phishingAttack(), null);
   }
   pushHomeState(ns);
+}
+
+function recordLocalFiles(ns, host) {
+  const files = {};
+  for (const file of ns.ls(host).filter(isUsefulLocalFile)) {
+    const text = safe(() => ns.read(file), "");
+    files[file] = String(text).slice(0, 4000);
+  }
+  if (Object.keys(files).length) recordHint(ns, host, { files });
+}
+
+function isUsefulLocalFile(file) {
+  const f = String(file);
+  if (f.endsWith(".js") || f.endsWith(".cache")) return false;
+  if (f.startsWith("/data/") || f.startsWith("data/")) return false;
+  if (f.includes("dnet-hints") || f.includes("dnet-passwords")) return false;
+  return true;
 }
 
 function rememberSecret(ns, target, secret, details) { const db = readJson(ns, PASSWORD_DB, {}); db[target] = secret; writeJson(ns, PASSWORD_DB, db); recordHint(ns, target, { ...details, solved: true, secret }); pushHomeState(ns); return true; }
@@ -294,10 +312,28 @@ function argsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function safe(fn, fallback) { try { return fn(); } catch { return fallback; } }
 async function safeAsync(fn, fallback) { try { return await fn(); } catch { return fallback; } }
 function literalHints(text) { const out = []; for (const re of [/password is\s+([^\s]+)/ig,/pin is\s+([^\s]+)/ig,/remember to use\s+([^\s]+)/ig,/set to\s+([^\s]+)/ig,/key is\s+([^\s]+)/ig,/secret is\s+([^\s]+)/ig]) { let m; while ((m = re.exec(text))) out.push(m[1].replace(/["'.:,;]+$/g, "")); } return out; }
+function directHintCandidates(ns, target) {
+  const out = [];
+  const hints = readJson(ns, HINT_DB, {});
+  const targetRe = escapeRegExp(target);
+  for (const rec of Object.values(hints)) for (const text of Object.values(rec?.files || {})) {
+    const s = String(text || "");
+    for (const re of [new RegExp(`Server:\\s*${targetRe}\\s+Password:\\s*[\"']?([^\"'\\n]+)`, "ig"), /Remember this password:\s*([^\s.]+)/ig]) {
+      let m; while ((m = re.exec(s))) out.push(m[1].trim().replace(/["'.:,;]+$/g, ""));
+    }
+    const common = /Some common passwords include\s+([^\.]+)/ig.exec(s);
+    if (common) out.push(...common[1].split(/\s*,\s*/));
+  }
+  return out;
+}
+function processHintText(text) { return [...extractSecretsFromText(text), ...extractBaseConversions(text)]; }
 function extractSecretsFromText(text) { const out = []; for (const re of [/passcode:\s*([^\s.]+)/ig,/Connecting to\s+[^:\s]+:([^\s.]+)/ig,/--([^\s-]{1,50})--/g,/\s[^:\s]+:([^\s]{1,50})\s/g]) { let m; while ((m = re.exec(text))) out.push(m[1].replace(/["'.:,;]+$/g, "")); } return out; }
+function escapeRegExp(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function extractBaseConversions(text) { const out = []; for (const re of [/base\s+(\d+(?:\.\d+)?)\s+number\s+([0-9a-z.]+)\s+in\s+base\s+10/ig,/([0-9a-z.]+)\s+in\s+base\s+(\d+(?:\.\d+)?)\s+is\s+the\s+password/ig]) { let m; while ((m = re.exec(text))) out.push(...(re.source.startsWith("base") ? baseConversionCandidates(m[2], Number(m[1])) : baseConversionCandidates(m[1], Number(m[2])))); } return out; }
 function decodeXor(data) { const [enc, masks] = data.split(";"); if (!enc || !masks) return ""; const mask = masks.split(/\s+/); return enc.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ parseInt(mask[i], 2))).join(""); }
 function romanToInt(s) { if (String(s).toLowerCase() === "nulla") return 0; const v = { I:1,V:5,X:10,L:50,C:100,D:500,M:1000 }; let total = 0, prev = 0; for (let i = s.length - 1; i >= 0; i--) { const cur = v[s[i]] || 0; total += cur < prev ? -cur : cur; prev = cur; } return total; }
-function parseBaseN(str, base) { const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"; let result = 0, digit = str.split(".")[0].length - 1; for (const c of str) { if (c === ".") continue; result += chars.indexOf(c) * base ** digit; digit--; } return result; }
+function baseConversionCandidates(str, base) { const n = parseBaseN(str, base); return [n, Math.round(n), Math.floor(n), Math.ceil(n)].filter(Number.isFinite).map(String); }
+function parseBaseN(str, base) { const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"; let result = 0, digit = String(str).split(".")[0].length - 1; for (const c of String(str).toUpperCase()) { if (c === ".") continue; result += chars.indexOf(c) * base ** digit; digit--; } return result; }
 function largestPrimeFactor(n) { let ans = 1; for (let p = 2; p * p <= n; p += p === 2 ? 1 : 2) while (n % p === 0) { ans = p; n /= p; } return Math.max(ans, n); }
 function parseArithmetic(expr) { const cleaned = expr.replaceAll("ҳ", "*").replaceAll("÷", "/").replaceAll("➕", "+").replaceAll("➖", "-").replaceAll("ns.exit(),", "").split(",")[0]; if (/[^0-9+\-*/().\s]/.test(cleaned)) return NaN; return Function(`"use strict"; return (${cleaned});`)(); }
 function parseYesnt(text) { const m = /data":"([^"]+)"/.exec(text) || /yes(?:n't)?(?:,yes(?:n't)?)*/.exec(text); if (!m) return null; return m[0].replace(/^data":"/, "").replace(/"$/, "").split(",").map(x => x === "yes"); }

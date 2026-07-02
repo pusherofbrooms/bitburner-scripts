@@ -13,12 +13,24 @@ export async function main(ns) {
   const state = loadState(ns, lab);
   const seen = new Set();
   const path = [];
-  const ok = await dfs(ns, lab, state, seen, path, 0);
-  if (ok) { state.solved = true; saveState(ns, lab, state); }
+  const initialReport = await safeAsync(() => ns.dnet.labreport(), null);
+  if (!initialReport?.success || !Array.isArray(initialReport.coords)) {
+    ns.tprint(`ERROR: labreport failed: ${JSON.stringify(initialReport)}`);
+    return;
+  }
+
+  const ok = await dfs(ns, lab, state, seen, path, 0, initialReport);
+  if (ok) {
+    state.solved = true;
+    saveState(ns, lab, state);
+    await launchCacheCollector(ns, lab);
+  }
   ns.tprint(ok ? `Solved ${lab}` : `No path found for ${lab}; visited ${seen.size} nodes`);
 }
 
 const MAP_FILE = "/data/dnet-labyrinth-map.json";
+const CRAWLER_SCRIPT = "dnet-crawl-bn15.js";
+const UNLOCK_SCRIPT = "dnet-unlock-ram.js";
 const DIRS = [
   { name: "north", short: "N", dx: 0, dy: -2, open: "north", back: "south" },
   { name: "east", short: "E", dx: 2, dy: 0, open: "east", back: "west" },
@@ -26,13 +38,7 @@ const DIRS = [
   { name: "west", short: "W", dx: -2, dy: 0, open: "west", back: "east" },
 ];
 
-async function dfs(ns, lab, state, seen, path, depth) {
-  const report = await safeAsync(() => ns.dnet.labreport(), null);
-  if (!report?.success || !Array.isArray(report.coords)) {
-    ns.print(`labreport failed at depth ${depth}: ${JSON.stringify(report)}`);
-    return false;
-  }
-
+async function dfs(ns, lab, state, seen, path, depth, report) {
   const [x, y] = report.coords;
   const key = `${x},${y}`;
   recordNode(ns, lab, state, key, report);
@@ -50,7 +56,7 @@ async function dfs(ns, lab, state, seen, path, depth) {
     if (!moved.moved) continue;
 
     path.push(dir.short);
-    if (await dfs(ns, lab, state, seen, path, depth + 1)) return true;
+    if (await dfs(ns, lab, state, seen, path, depth + 1, moved.report)) return true;
     path.pop();
 
     const back = await move(ns, lab, dir.back);
@@ -77,16 +83,39 @@ function recordNode(ns, lab, state, key, report) {
   saveState(ns, lab, state);
 }
 
+async function launchCacheCollector(ns, lab) {
+  safe(() => ns.scp([CRAWLER_SCRIPT, UNLOCK_SCRIPT], lab, "home"), false);
+  if (safe(() => ns.ps(lab).some(p => p.filename === CRAWLER_SCRIPT && argsEqual(p.args, ["--once"])), false)) return;
+  const pid = safe(() => ns.exec(CRAWLER_SCRIPT, lab, 1, "--once"), 0);
+  ns.print(pid ? `launched ${CRAWLER_SCRIPT} --once on ${lab} pid=${pid}` : `could not launch cache collector on ${lab}`);
+}
+
 async function move(ns, lab, direction) {
   const r = await safeAsync(() => ns.dnet.authenticate(lab, `go ${direction}`), { success: false, message: "authenticate threw" });
   const message = String(r?.message ?? "");
-  const moved = /You have moved to /.test(message);
+  const report = parseMoveReport(r);
+  const moved = !!report;
   if (r?.success || /successfully navigated|discovered the end/i.test(message)) {
     ns.print(`SUCCESS via ${direction}: ${message}`);
-    return { success: true, moved: true, message };
+    return { success: true, moved: true, message, report };
   }
   if (/cannot go that way|don't know how|lost and confused|need more/i.test(message)) ns.print(`blocked ${direction}: ${message}`);
-  return { success: false, moved, message };
+  return { success: false, moved, message, report };
+}
+
+function parseMoveReport(r) {
+  const match = String(r?.message ?? "").match(/You have moved to (-?\d+),(-?\d+)/);
+  if (!match) return null;
+  const rows = String(r?.data ?? "").split("\n");
+  if (rows.length < 3) return null;
+  return {
+    success: true,
+    coords: [Number(match[1]), Number(match[2])],
+    north: rows[0]?.[1] === " ",
+    east: rows[1]?.[2] === " ",
+    south: rows[2]?.[1] === " ",
+    west: rows[1]?.[0] === " ",
+  };
 }
 
 function loadState(ns, lab) {
@@ -101,6 +130,7 @@ function saveState(ns, lab, state) {
   if (ns.getHostname() !== "home") safe(() => ns.scp(MAP_FILE, "home", ns.getHostname()), false);
 }
 function readJson(ns, file, fallback) { try { return JSON.parse(ns.read(file) || JSON.stringify(fallback)); } catch { return fallback; } }
+function argsEqual(a, b) { return JSON.stringify(a ?? []) === JSON.stringify(b ?? []); }
 function safe(fn, fallback) { try { return fn(); } catch { return fallback; } }
 async function safeAsync(fn, fallback) { try { return await fn(); } catch (e) { return fallback ?? { success: false, message: String(e) }; } }
 export function autocomplete() { return ["th3_l4byr1nth", "cru3l_l4byr1nth", "m3rc1l3ss_l4byr1nth", "ub3r_l4byr1nth", "--tail"]; }
