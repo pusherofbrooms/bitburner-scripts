@@ -14,8 +14,9 @@ export async function main(ns) {
   for (let i = 0; i < opts.maxAttempts; i++) {
     const free = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
     const blocked = ns.dnet.getBlockedRam(host);
-    ns.print(`${host}: free=${free.toFixed(2)}GB blocked=${blocked.toFixed(2)}GB target=${opts.targetFree}GB`);
-    if (free >= opts.targetFree || blocked <= 0) break;
+    const targetFree = opts.all ? ns.getServerMaxRam(host) : opts.targetFree;
+    ns.print(`${host}: free=${free.toFixed(2)}GB blocked=${blocked.toFixed(2)}GB target=${targetFree}GB`);
+    if (free >= targetFree || blocked <= 0) break;
     const result = await ns.dnet.memoryReallocation(host);
     if (!result?.success) break;
   }
@@ -31,14 +32,15 @@ export async function main(ns) {
 }
 
 function parseArgs(args) {
-  const opts = { host: "", password: "", targetFree: 16, maxAttempts: 30, thenScript: "", thenArgs: [] };
+  const opts = { host: "", password: "", targetFree: 16, maxAttempts: 30, all: false, thenScript: "", thenArgs: [] };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--host") opts.host = String(args[++i] ?? "");
     else if (args[i] === "--password") opts.password = String(args[++i] ?? "");
     else if (args[i] === "--target-free") opts.targetFree = Number(args[++i]);
     else if (args[i] === "--max-attempts") opts.maxAttempts = Number(args[++i]);
+    else if (args[i] === "--all") opts.all = true;
     else if (args[i] === "--then") { opts.thenScript = String(args[++i] ?? ""); opts.thenArgs = args.slice(i + 1); break; }
   }
   return opts;
 }
-export function autocomplete() { return ["--host", "--password", "--target-free", "--max-attempts", "--then", "dnet-crawl-bn15.js", "dnet-crawl.js"]; }
+export function autocomplete() { return ["--host", "--password", "--target-free", "--max-attempts", "--all", "--then", "/dnet/bootstrap.js", "/dnet/labyrinth.js"]; }

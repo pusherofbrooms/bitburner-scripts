@@ -39,7 +39,7 @@ export function rememberSecret(ns, target, secret, details = {}) {
 export function argsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 export function hashText(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); }
 export function parseArgs(args) {
-  const o = { once: false, sleepMs: 60000, maxAttempts: 10000, verbose: false, phish: false };
+  const o = { once: false, sleepMs: 60000, maxAttempts: 10000, verbose: false, phish: false, targetFree: 16, labyrinthFree: 128 };
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
     if (a === "--once") o.once = true;
@@ -47,6 +47,8 @@ export function parseArgs(args) {
     else if (a === "--phish") o.phish = true;
     else if (a === "--sleep") o.sleepMs = Number(args[++i]);
     else if (a === "--max-attempts") o.maxAttempts = Number(args[++i]);
+    else if (a === "--target-free") o.targetFree = Number(args[++i]);
+    else if (a === "--labyrinth-free") o.labyrinthFree = Number(args[++i]);
   }
   return o;
 }
