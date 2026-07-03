@@ -16,6 +16,7 @@ export async function main(ns) {
   const entries = Object.entries(data || {});
   const fields = new Map();
   let solved = 0;
+  /** @type {[string, number][]} */
   const sizes = [];
 
   for (const [host, rec] of entries) {
