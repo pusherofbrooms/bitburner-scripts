@@ -8,14 +8,14 @@
 export async function main(ns) {
   ns.disableLog("ALL");
   const lab = String(ns.args[0] ?? "th3_l4byr1nth");
-  if (!ns.dnet) return ns.tprint("ERROR: ns.dnet is unavailable.");
+  if (!ns.dnet) return ns.print("ERROR: ns.dnet is unavailable.");
 
   const state = loadState(ns, lab);
   const seen = new Set();
   const path = [];
   const initialReport = await safeAsync(() => ns.dnet.labreport(), null);
   if (!initialReport?.success || !Array.isArray(initialReport.coords)) {
-    ns.tprint(`ERROR: labreport failed: ${JSON.stringify(initialReport)}`);
+    ns.print(`ERROR: labreport failed: ${JSON.stringify(initialReport)}`);
     return;
   }
 
@@ -25,7 +25,7 @@ export async function main(ns) {
     saveState(ns, lab, state);
     await launchCacheCollector(ns, lab);
   }
-  ns.tprint(ok ? `Solved ${lab}` : `No path found for ${lab}; visited ${seen.size} nodes`);
+  ns.print(ok ? `Solved ${lab}` : `No path found for ${lab}; visited ${seen.size} nodes`);
 }
 
 const MAP_FILE = "/data/dnet-labyrinth-map.json";

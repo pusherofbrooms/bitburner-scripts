@@ -4,10 +4,11 @@ export async function main(ns) {
     ns.disableLog("ALL");
     // This script could run separately in a loop, howeverit is more RAM-efficient to call the script from a management script
     //while (true) {    
-        // get all available servers
-        const servers = getAllServers(ns)
+        // get all available servers, including currently visible darknet servers.
+        const servers = getAllContractServers(ns)
         const contracts = servers.flatMap((server) => {
-            const onServer = ns.ls(server, ".cct").map((contract) => {
+            const files = safe(() => ns.ls(server, ".cct"), []);
+            const onServer = files.map((contract) => {
                 const type = ns.codingcontract.getContractType(contract, server);
                 const data = ns.codingcontract.getData(contract, server);
                 const result = solve(type, data, server, contract, ns);
@@ -22,6 +23,31 @@ export async function main(ns) {
     //}
     return;
 }
+
+function getAllContractServers(ns) {
+    const discovered = new Set(getAllServers(ns));
+
+    // Darknet contracts are generated on darknet hosts. They are not reachable from
+    // home's normal scan tree, so include hosts learned by the darknet crawler.
+    for (const file of ["/data/dnet-hints.txt", "/data/dnet-passwords.txt"]) {
+        const data = readJson(ns, file, {});
+        for (const host of Object.keys(data)) discovered.add(host);
+    }
+
+    // If this script is run on a darknet host, include its immediate darknet neighbors too.
+    try {
+        if (ns.dnet?.isDarknetServer(ns.getHostname())) {
+            for (const host of ns.dnet.probe()) discovered.add(host);
+        }
+    } catch {}
+
+    return [...discovered];
+}
+
+function readJson(ns, file, fallback) {
+    try { return JSON.parse(ns.read(file) || JSON.stringify(fallback)); } catch { return fallback; }
+}
+function safe(fn, fallback) { try { return fn(); } catch { return fallback; } }
 
 function solve(type, data, server, contract, ns) {
     let solution;

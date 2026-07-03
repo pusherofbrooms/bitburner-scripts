@@ -87,9 +87,11 @@ async function dynamicSolve(ns, target, d, opts) {
   if (d.modelId === "AccountsManager_4.2") return await solveHigherLower(ns, target, d, opts, false);
   if (d.modelId === "BellaCuore" && d.data.includes(",")) return await solveHigherLower(ns, target, d, opts, true);
   if (d.modelId === "Factori-Os" || d.modelId === "BigMo%od") return await solveNumericBrute(ns, target, d, opts) ?? await solveDivisibility(ns, target);
-  if (d.modelId === "NIL" || d.modelId === "RateMyPix.Auth") return await solveExactChars(ns, target, d);
+  if (d.modelId === "NIL") return await solveExactChars(ns, target, d);
+  if (d.modelId === "RateMyPix.Auth") return await solveSpiceLevel(ns, target, d);
   if (d.modelId === "2G_cellular") return await solveTiming(ns, target, d);
   if (d.modelId === "DeepGreen") return await solveMastermind(ns, target, d, opts);
+  if (d.modelId === "KingOfTheHill") return await solveKingOfTheHill(ns, target, d, opts);
   return null;
 }
 
@@ -109,14 +111,40 @@ async function solveHigherLower(ns, target, d, opts, roman) {
 }
 async function solveExactChars(ns, target, d) {
   const chars = charset(d); let pass = chars[0].repeat(d.passwordLength);
-  for (let i = 0; i < d.passwordLength; i++) for (const c of chars) {
-    const guess = pass.slice(0, i) + c + pass.slice(i + 1);
-    const fb = await attemptWithFeedback(ns, target, guess);
-    if (fb.success) return guess;
-    const yesnt = parseYesnt(fb.data ?? fb.text), spice = parseSpice(fb.data ?? fb.text);
-    if ((yesnt && yesnt[i] === true) || (spice != null && spice > i)) { pass = guess; break; }
+  for (let i = 0; i < d.passwordLength; i++) {
+    let found = false;
+    for (const c of chars) {
+      const guess = pass.slice(0, i) + c + pass.slice(i + 1);
+      const fb = await attemptWithFeedback(ns, target, guess);
+      if (fb.success) return guess;
+      const yesnt = parseYesnt(fb.data ?? fb.text), spice = parseSpice(fb.data ?? fb.text);
+      if ((yesnt && yesnt[i] === true) || (spice != null && spice > i)) { pass = guess; found = true; break; }
+    }
+    if (!found) return null;
   }
-  return pass;
+  return await trySecret(ns, target, pass) ? pass : null;
+}
+async function solveSpiceLevel(ns, target, d) {
+  const chars = charset(d);
+  let pass = chars[0].repeat(d.passwordLength);
+  let score = await spiceScore(ns, target, pass);
+  if (score == null) return null;
+  for (let i = 0; i < d.passwordLength; i++) {
+    for (const c of chars) {
+      if (c === pass[i]) continue;
+      const guess = pass.slice(0, i) + c + pass.slice(i + 1);
+      const fb = await attemptWithFeedback(ns, target, guess);
+      if (fb.success) return guess;
+      const next = parseSpice(fb.data ?? fb.text);
+      if (next != null && next > score) { pass = guess; score = next; break; }
+    }
+  }
+  return await trySecret(ns, target, pass) ? pass : null;
+}
+async function spiceScore(ns, target, guess) {
+  const fb = await attemptWithFeedback(ns, target, guess);
+  if (fb.success) return guess.length;
+  return parseSpice(fb.data ?? fb.text);
 }
 async function solveTiming(ns, target, d) {
   const chars = charset(d); let pass = "";
@@ -146,6 +174,20 @@ async function solveDivisibility(ns, target) {
     if (/IS divisible/.test(`${fb.message ?? ""} ${fb.text}`)) n = probe; else break;
   }
   return String(n);
+}
+async function solveKingOfTheHill(ns, target, d, opts) {
+  let best = 0, bestAlt = -Infinity;
+  const max = 10 ** d.passwordLength - 1;
+  const step = Math.max(1, Math.floor(max / Math.max(10, Math.min(opts.maxDynamicAttempts, 50))));
+  for (let x = 0; x <= max; x += step) {
+    const fb = await attemptWithFeedback(ns, target, String(x));
+    if (fb.success) return String(x);
+    const alt = Number(fb.data);
+    if (Number.isFinite(alt) && alt > bestAlt) { bestAlt = alt; best = x; }
+  }
+  const lo = Math.max(0, best - step), hi = Math.min(max, best + step);
+  for (let x = lo; x <= hi; x++) if (await trySecret(ns, target, String(x))) return String(x);
+  return null;
 }
 async function solveMastermind(ns, target, d, opts) {
   const chars = charset(d);
@@ -198,15 +240,34 @@ async function replicateTo(ns, target, opts) {
   for (const p of procs) safe(() => ns.kill(p.pid), false);
   const pid = safe(() => ns.exec(SCRIPT, target, 1, ...childArgs), 0);
   if (pid) ns.print(`replicated to ${target} pid=${pid}`);
-  else safe(() => ns.exec(UNLOCK_SCRIPT, target, 1, "--target-free", 12, "--max-attempts", 10, "--then", SCRIPT, ...childArgs), 0);
+  else {
+    const secret = readJson(ns, PASSWORD_DB, {})[target] ?? "";
+    const unlockArgs = ["--host", target, "--password", secret, "--target-free", 16, "--max-attempts", 30, "--then", SCRIPT, ...childArgs];
+    const unlockPid = safe(() => ns.exec(UNLOCK_SCRIPT, ns.getHostname(), 1, ...unlockArgs), 0);
+    ns.print(unlockPid ? `unlocking ${target} from ${ns.getHostname()} pid=${unlockPid}` : `could not launch ${UNLOCK_SCRIPT} for ${target}`);
+  }
 }
 async function launchLabyrinthSolver(ns, lab) {
   const here = ns.getHostname();
   const args = [lab];
   safe(() => ns.scp(LABYRINTH_SCRIPT, here, "home"), false);
+  await ensureLocalFreeRam(ns, 64, 30);
   if (safe(() => ns.ps(here).some(p => p.filename === LABYRINTH_SCRIPT && argsEqual(p.args, args)), false)) return;
-  const pid = safe(() => ns.exec(LABYRINTH_SCRIPT, here, 1, ...args), 0);
-  ns.print(pid ? `launched ${LABYRINTH_SCRIPT} for ${lab} pid=${pid}` : `could not launch ${LABYRINTH_SCRIPT} for ${lab} on ${here}`);
+  const ram = Math.max(1, ns.getScriptRam(LABYRINTH_SCRIPT, here));
+  const free = ns.getServerMaxRam(here) - ns.getServerUsedRam(here);
+  const threads = Math.max(1, Math.floor(free / ram));
+  const pid = safe(() => ns.exec(LABYRINTH_SCRIPT, here, threads, ...args), 0);
+  ns.print(pid ? `launched ${LABYRINTH_SCRIPT} for ${lab} x${threads} pid=${pid}` : `could not launch ${LABYRINTH_SCRIPT} for ${lab} on ${here}`);
+}
+async function ensureLocalFreeRam(ns, targetFree, maxAttempts) {
+  if (!ns.dnet.isDarknetServer(ns.getHostname())) return;
+  for (let i = 0; i < maxAttempts; i++) {
+    const free = ns.getServerMaxRam(ns.getHostname()) - ns.getServerUsedRam(ns.getHostname());
+    const blocked = safe(() => ns.dnet.getBlockedRam(), 0);
+    if (free >= targetFree || blocked <= 0) return;
+    const result = await safeAsync(() => ns.dnet.memoryReallocation(), null);
+    if (!result?.success) return;
+  }
 }
 async function lootCurrent(ns, opts) {
   const here = ns.getHostname();
