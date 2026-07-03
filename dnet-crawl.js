@@ -28,6 +28,7 @@ const DOG_NAMES = ["fido", "spot", "rover", "max"];
 const EU_COUNTRIES = ["Austria","Belgium","Bulgaria","Croatia","Republic of Cyprus","Czech Republic","Denmark","Estonia","Finland","France","Germany","Greece","Hungary","Ireland","Italy","Latvia","Lithuania","Luxembourg","Malta","Netherlands","Poland","Portugal","Romania","Slovakia","Slovenia","Spain","Sweden"];
 const COMMON_PASSWORDS = ["123456","password","12345678","qwerty","123456789","12345","1234","111111","1234567","dragon","123123","baseball","abc123","football","monkey","letmein","696969","shadow","master","666666","qwertyuiop","123321","mustang","1234567890","michael","654321","superman","1qaz2wsx","7777777","121212","0","qazwsx","123qwe","trustno1","jordan","jennifer","zxcvbnm","asdfgh","hunter","buster","soccer","harley","batman","andrew","tigger","sunshine","iloveyou","2000","charlie","robert","thomas","hockey","ranger","daniel","starwars","112233","george","computer","michelle","jessica","pepper","1111","zxcvbn","555555","11111111","131313","freedom","777777","pass","maggie","159753","aaaaaa","ginger","princess","joshua","cheese","amanda","summer","love","ashley","6969","nicole","chelsea","biteme","matthew","access","yankees","987654321","dallas","austin","thunder","taylor","matrix"];
 const SMALL_PRIMES = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97];
+const LABYRINTH_HOSTS = new Set(["th3_l4byr1nth", "cru3l_l4byr1nth", "m3rc1l3ss_l4byr1nth", "ub3r_l4byr1nth", "et3rn4l_l4byr1nth", "end13ss_l4byr1nth", "f1n4l_l4byr1nth", "b0nus_l4byr1nth"]);
 
 async function tick(ns, opts) {
   pullHomeState(ns);
@@ -41,7 +42,11 @@ async function solveNeighbor(ns, target, opts) {
   const details = safe(() => ns.dnet.getServerDetails(target), null);
   if (!details || !details.isOnline || !details.isConnectedToCurrentServer) return false;
   recordHint(ns, target, details);
-  if (details.modelId === "(The Labyrinth)") { await launchLabyrinthSolver(ns, target); return false; }
+  if (isLabyrinth(target, details)) {
+    if (details.hasSession) return true;
+    await launchLabyrinthSolver(ns, target);
+    return false;
+  }
   if (details.hasSession) return true;
   const db = readJson(ns, PASSWORD_DB, {});
   if (typeof db[target] === "string") {
@@ -255,10 +260,12 @@ async function launchLabyrinthSolver(ns, lab) {
   if (safe(() => ns.ps(here).some(p => p.filename === LABYRINTH_SCRIPT && argsEqual(p.args, args)), false)) return;
   const ram = Math.max(1, ns.getScriptRam(LABYRINTH_SCRIPT, here));
   const free = ns.getServerMaxRam(here) - ns.getServerUsedRam(here);
-  const threads = Math.max(1, Math.floor(free / ram));
+  const threads = Math.floor(free / ram);
+  if (threads < 1) return ns.print(`could not launch ${LABYRINTH_SCRIPT} for ${lab} on ${here}: need ${ns.format.ram(ram)}, free ${ns.format.ram(free)}`);
   const pid = safe(() => ns.exec(LABYRINTH_SCRIPT, here, threads, ...args), 0);
   ns.print(pid ? `launched ${LABYRINTH_SCRIPT} for ${lab} x${threads} pid=${pid}` : `could not launch ${LABYRINTH_SCRIPT} for ${lab} on ${here}`);
 }
+function isLabyrinth(host, details) { return details?.modelId === "(The Labyrinth)" || LABYRINTH_HOSTS.has(String(host)); }
 async function ensureLocalFreeRam(ns, targetFree, maxAttempts) {
   if (!ns.dnet.isDarknetServer(ns.getHostname())) return;
   for (let i = 0; i < maxAttempts; i++) {
