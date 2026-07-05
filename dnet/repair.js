@@ -8,6 +8,7 @@ export async function main(ns) {
   while (true) { await tick(ns, opts); await ns.sleep(opts.sleepMs); }
 }
 async function tick(ns, opts) {
+  pruneDuplicateDaemons(ns);
   if (ns.dnet?.isDarknetServer(ns.getHostname())) {
     await clearBlockedRam(ns, opts);
     if (opts.phish) await safeAsync(() => ns.dnet.phishingAttack(), null);
@@ -27,3 +28,9 @@ async function clearBlockedRam(ns, opts) {
   }
 }
 function freeRam(ns) { return ns.getServerMaxRam(ns.getHostname()) - ns.getServerUsedRam(ns.getHostname()); }
+function pruneDuplicateDaemons(ns) {
+  for (const [file] of DAEMONS) {
+    const procs = ns.ps(ns.getHostname()).filter(p => p.filename === file).sort((a, b) => a.pid - b.pid);
+    for (const p of procs.slice(1)) ns.kill(p.pid);
+  }
+}

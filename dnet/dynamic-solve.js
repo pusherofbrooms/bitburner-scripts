@@ -15,7 +15,7 @@ async function tick(ns, opts) {
   pullHomeState(ns, [PASSWORD_DB, HINT_DB]);
   for (const target of ns.dnet.probe()) {
     const d = ns.dnet.getServerDetails(target);
-    if (!d || d.hasSession || !d.isOnline || !d.isConnectedToCurrentServer) continue;
+    if (!d || d.hasSession || !d.isConnectedToCurrentServer) continue;
     const known = readJson(ns, PASSWORD_DB, {})[target];
     if (known !== undefined && await trySecret(ns, target, known, d)) continue;
     const solved = await dynamicSolve(ns, target, d, opts);

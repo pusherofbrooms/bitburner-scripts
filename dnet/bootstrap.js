@@ -27,7 +27,7 @@ async function tick(ns, opts) {
   await launchLocalHelpers(ns, opts);
   for (const target of safe(() => ns.dnet.probe(), [])) {
     const d = safe(() => ns.dnet.getServerDetails(target), null);
-    if (!d || !d.isOnline || !d.isConnectedToCurrentServer) continue;
+    if (!d || !d.isConnectedToCurrentServer) continue;
     if (d.hasSession) { await replicate(ns, target, opts); continue; }
     const known = readJson(ns, PASSWORD_DB, {})[target];
     if (known !== undefined && await trySecret(ns, target, known, d)) { await replicate(ns, target, opts); continue; }
@@ -35,6 +35,7 @@ async function tick(ns, opts) {
   }
 }
 async function launchLocalHelpers(ns, opts) {
+  pruneDuplicateHelpers(ns);
   for (const [file, args] of CHILDREN) {
     if (opts.noHeartbleed && file === "/dnet/dynamic-solve.js") continue;
     if (!ns.fileExists(file) || ns.ps().some(p => p.filename === file && argsEqual(p.args, args))) continue;
@@ -83,4 +84,10 @@ function freeRam(ns) { return ns.getServerMaxRam(ns.getHostname()) - ns.getServe
 function killDuplicateBootstraps(ns) {
   const me = ns.pid;
   for (const p of ns.ps(ns.getHostname()).filter(p => p.filename === ns.getScriptName() && p.pid !== me)) ns.kill(p.pid);
+}
+function pruneDuplicateHelpers(ns) {
+  for (const [file] of CHILDREN) {
+    const procs = ns.ps(ns.getHostname()).filter(p => p.filename === file).sort((a, b) => a.pid - b.pid);
+    for (const p of procs.slice(1)) ns.kill(p.pid);
+  }
 }
