@@ -107,7 +107,7 @@ async function solveHigherLower(ns, target, d, opts, roman) {
     const guess = Math.floor((lo + hi) / 2);
     const fb = await attemptWithFeedback(ns, target, String(guess));
     if (fb.success) return String(guess);
-    const feedback = `${fb.data ?? ""} ${fb.message ?? ""} ${fb.text}`;
+    const feedback = `${fb.data ?? ""} ${fb.message ?? ""}`;
     if (/Lower|ALTUS NIMIS/i.test(feedback)) hi = guess - 1;
     else if (/Higher|PARUM BREVIS/i.test(feedback)) lo = guess + 1;
     else break;
@@ -332,10 +332,6 @@ function parseFeedbackLog(text, secret) {
   for (const line of lines) {
     if (!line.trim().startsWith("{")) continue;
     try { const o = JSON.parse(line); if (String(o.passwordAttempted) === String(secret)) return o; } catch {}
-  }
-  for (const line of lines) {
-    if (!line.trim().startsWith("{")) continue;
-    try { return JSON.parse(line); } catch {}
   }
   return null;
 }
