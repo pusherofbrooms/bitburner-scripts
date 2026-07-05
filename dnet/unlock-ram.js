@@ -9,7 +9,7 @@ export async function main(ns) {
   const here = ns.getHostname();
   const host = opts.host || here;
   if (!ns.dnet?.isDarknetServer(host)) return;
-  if (opts.password) ns.dnet.connectToSession(host, opts.password);
+  if (opts.passwordSet) ns.dnet.connectToSession(host, opts.password);
 
   for (let i = 0; i < opts.maxAttempts; i++) {
     const free = ns.getServerMaxRam(host) - ns.getServerUsedRam(host);
@@ -22,7 +22,7 @@ export async function main(ns) {
   }
 
   if (opts.thenScript) {
-    if (opts.password) ns.dnet.connectToSession(host, opts.password);
+    if (opts.passwordSet) ns.dnet.connectToSession(host, opts.password);
     const procs = ns.ps(host).filter(p => p.filename === opts.thenScript);
     if (!procs.some(p => JSON.stringify(p.args) === JSON.stringify(opts.thenArgs))) {
       const pid = ns.exec(opts.thenScript, host, 1, ...opts.thenArgs);
@@ -32,10 +32,10 @@ export async function main(ns) {
 }
 
 function parseArgs(args) {
-  const opts = { host: "", password: "", targetFree: 16, maxAttempts: 30, all: false, thenScript: "", thenArgs: [] };
+  const opts = { host: "", password: "", passwordSet: false, targetFree: 16, maxAttempts: 30, all: false, thenScript: "", thenArgs: [] };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--host") opts.host = String(args[++i] ?? "");
-    else if (args[i] === "--password") opts.password = String(args[++i] ?? "");
+    else if (args[i] === "--password") { opts.password = String(args[++i] ?? ""); opts.passwordSet = true; }
     else if (args[i] === "--target-free") opts.targetFree = Number(args[++i]);
     else if (args[i] === "--max-attempts") opts.maxAttempts = Number(args[++i]);
     else if (args[i] === "--all") opts.all = true;

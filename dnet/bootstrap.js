@@ -13,6 +13,7 @@ const LABYRINTH_HOSTS = new Set(["th3_l4byr1nth", "cru3l_l4byr1nth", "m3rc1l3ss_
 /** @param {NS} ns */
 export async function main(ns) {
   ns.disableLog("ALL");
+  killDuplicateBootstraps(ns);
   const opts = parseArgs(ns.args);
   await ensureDnetFiles(ns);
   if (opts.once) return await tick(ns, opts);
@@ -28,7 +29,7 @@ async function tick(ns, opts) {
     if (!d || !d.isOnline || !d.isConnectedToCurrentServer) continue;
     if (d.hasSession) { await replicate(ns, target, opts); continue; }
     const known = readJson(ns, PASSWORD_DB, {})[target];
-    if (known && await trySecret(ns, target, known, d)) { await replicate(ns, target, opts); continue; }
+    if (known !== undefined && await trySecret(ns, target, known, d)) { await replicate(ns, target, opts); continue; }
     if (isLabyrinth(target, d)) await launchLabyrinth(ns, target, opts);
   }
 }
@@ -76,3 +77,7 @@ function normalTargetFree(ns, opts) {
 }
 function isLabyrinth(host, d) { return d?.modelId === "(The Labyrinth)" || LABYRINTH_HOSTS.has(String(host)); }
 function freeRam(ns) { return ns.getServerMaxRam(ns.getHostname()) - ns.getServerUsedRam(ns.getHostname()); }
+function killDuplicateBootstraps(ns) {
+  const me = ns.pid;
+  for (const p of ns.ps(ns.getHostname()).filter(p => p.filename === ns.getScriptName() && p.pid !== me)) ns.kill(p.pid);
+}

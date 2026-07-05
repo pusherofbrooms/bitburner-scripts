@@ -45,8 +45,19 @@ function makeCandidates(d, h) {
 function unique(a) { return [...new Set(a)]; }
 function literalHints(text) { const out = []; for (const re of [/password is\s+([^\s]+)/ig,/pin is\s+([^\s]+)/ig,/key is\s+([^\s]+)/ig,/secret is\s+([^\s]+)/ig]) { let m; while ((m = re.exec(text))) out.push(m[1].replace(/["'.:,;]+$/g, "")); } return out; }
 function extractSecretsFromText(text) { return String(text).match(/[A-Za-z0-9■]{1,50}/g) || []; }
-function decodeXor(s) { return String(s).split("").map(c => String.fromCharCode(c.charCodeAt(0) ^ 42)).join(""); }
+function decodeXor(s) {
+  const [enc, masks = ""] = String(s).split(";");
+  const bits = masks.trim().split(/\s+/).filter(Boolean).map(b => parseInt(b, 2));
+  if (!bits.length) return "";
+  return enc.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ bits[i])).join("");
+}
 function romanToInt(s) { const v = {I:1,V:5,X:10,L:50,C:100,D:500,M:1000}; let n=0,p=0; for (const c of String(s).toUpperCase().split("").reverse()) { const x=v[c]||0; n += x < p ? -x : x; p = Math.max(p, x); } return n; }
-function baseConversionCandidates(s, base) { const n = parseInt(String(s).trim(), base); return Number.isFinite(n) ? [String(n), n.toString(16), n.toString(8), n.toString(2)] : []; }
+function baseConversionCandidates(s, base) { const n = parseBaseN(String(s).trim(), base); return Number.isFinite(n) ? [String(n)] : []; }
+function parseBaseN(s, base) {
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let n = 0, digit = s.split(".")[0].length - 1;
+  for (const ch of s.toUpperCase()) { if (ch === ".") continue; n += chars.indexOf(ch) * base ** digit--; }
+  return n;
+}
 function largestPrimeFactor(n) { let best=1; for (let d=2; d*d<=n; d += d===2 ? 1 : 2) while (n%d===0) { best=d; n/=d; } return n>1?n:best; }
-function parseArithmetic(s) { try { if (!/^[\d+\-*/%() .]+$/.test(s)) return NaN; return Function(`return (${s})`)(); } catch { return NaN; } }
+function parseArithmetic(s) { try { s = String(s).replaceAll("ҳ", "*").replaceAll("÷", "/").replaceAll("➕", "+").replaceAll("➖", "-").replace(/ns\.exit\(\),?/g, ""); if (!/^[\d+\-*/%() .]+$/.test(s)) return NaN; return Function(`return (${s})`)(); } catch { return NaN; } }

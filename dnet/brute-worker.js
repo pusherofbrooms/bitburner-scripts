@@ -18,7 +18,7 @@ async function tick(ns, opts) {
       if (n % 100 === 0) {
         pullHomeState(ns, [PASSWORD_DB]);
         const known = readJson(ns, PASSWORD_DB, {})[target];
-        if (known && await trySecret(ns, target, known, d)) break;
+        if (known !== undefined && await trySecret(ns, target, known, d)) break;
         await ns.sleep(1);
       }
       if (await trySecret(ns, target, String(n).padStart(d.passwordLength, "0"), d)) break;
