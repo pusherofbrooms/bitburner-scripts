@@ -8,14 +8,14 @@ export async function main(ns) {
   while (true) { await tick(ns, opts); await ns.sleep(opts.sleepMs); }
 }
 async function tick(ns, opts) {
-  pruneDuplicateDaemons(ns);
+  const daemons = localDaemons(ns, opts);
+  pruneDuplicateDaemons(ns, daemons);
   if (ns.dnet?.isDarknetServer(ns.getHostname())) {
     await clearBlockedRam(ns, opts);
     if (opts.phish) await safeAsync(() => ns.dnet.phishingAttack(), null);
   }
-  for (const [file, args] of DAEMONS) {
-    if (opts.noHeartbleed && file === "/dnet/dynamic-solve.js") continue;
-    if (!ns.fileExists(file) || ns.ps().some(p => p.filename === file)) continue;
+  for (const [file, args] of daemons) {
+    if (!ns.fileExists(file) || ns.ps().some(p => sameFile(p.filename, file))) continue;
     if (freeRam(ns) >= ns.getScriptRam(file)) ns.exec(file, ns.getHostname(), 1, ...args);
   }
 }
@@ -28,9 +28,16 @@ async function clearBlockedRam(ns, opts) {
   }
 }
 function freeRam(ns) { return ns.getServerMaxRam(ns.getHostname()) - ns.getServerUsedRam(ns.getHostname()); }
-function pruneDuplicateDaemons(ns) {
+function pruneDuplicateDaemons(ns, daemons = DAEMONS) {
   for (const [file] of DAEMONS) {
-    const procs = ns.ps(ns.getHostname()).filter(p => p.filename === file).sort((a, b) => a.pid - b.pid);
-    for (const p of procs.slice(1)) ns.kill(p.pid);
+    const keep = daemons.some(([f]) => sameFile(f, file));
+    const procs = ns.ps(ns.getHostname()).filter(p => sameFile(p.filename, file)).sort((a, b) => a.pid - b.pid);
+    for (const p of procs.slice(keep ? 1 : 0)) ns.kill(p.pid);
   }
 }
+function localDaemons(ns, opts) {
+  const host = ns.getHostname();
+  if (host === "home" || host === "darkweb") return [];
+  return DAEMONS.filter(([f]) => !(opts.noHeartbleed && f === "/dnet/dynamic-solve.js"));
+}
+function sameFile(a, b) { return String(a).replace(/^\/+/, "") === String(b).replace(/^\/+/, ""); }

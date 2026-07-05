@@ -35,10 +35,10 @@ async function tick(ns, opts) {
   }
 }
 async function launchLocalHelpers(ns, opts) {
-  pruneDuplicateHelpers(ns);
-  for (const [file, args] of CHILDREN) {
-    if (opts.noHeartbleed && file === "/dnet/dynamic-solve.js") continue;
-    if (!ns.fileExists(file) || ns.ps().some(p => p.filename === file && argsEqual(p.args, args))) continue;
+  const children = localChildren(ns, opts);
+  pruneDuplicateHelpers(ns, children);
+  for (const [file, args] of children) {
+    if (!ns.fileExists(file) || ns.ps().some(p => sameFile(p.filename, file) && argsEqual(p.args, args))) continue;
     if (freeRam(ns) >= ns.getScriptRam(file)) ns.exec(file, ns.getHostname(), 1, ...args);
   }
 }
@@ -49,13 +49,13 @@ async function replicate(ns, target, opts) {
   const args = ["--sleep", opts.sleepMs];
   const file = "/dnet/bootstrap.js";
   safe(() => ns.scp(file, target, "home"), false);
-  if (ns.ps(target).some(p => p.filename === file)) return;
+  if (ns.ps(target).some(p => sameFile(p.filename, file))) return;
   const pid = ns.exec(file, target, 1, ...args);
   if (!pid) await unlockThen(ns, target, opts, file, args, normalTargetFree(ns, opts));
 }
 async function launchLabyrinth(ns, lab, opts) {
   if (!ns.fileExists(LABYRINTH_SCRIPT)) safe(() => ns.scp(LABYRINTH_SCRIPT, ns.getHostname(), "home"), false);
-  if (ns.ps().some(p => p.filename === LABYRINTH_SCRIPT && argsEqual(p.args, [lab]))) return;
+  if (ns.ps().some(p => sameFile(p.filename, LABYRINTH_SCRIPT) && argsEqual(p.args, [lab]))) return;
   await unlockLocalForLabyrinth(ns, opts);
   const ram = ns.getScriptRam(LABYRINTH_SCRIPT);
   const threads = Math.max(1, Math.floor(freeRam(ns) / ram));
@@ -83,11 +83,19 @@ function isLabyrinth(host, d) { return d?.modelId === "(The Labyrinth)" || LABYR
 function freeRam(ns) { return ns.getServerMaxRam(ns.getHostname()) - ns.getServerUsedRam(ns.getHostname()); }
 function killDuplicateBootstraps(ns) {
   const me = ns.pid;
-  for (const p of ns.ps(ns.getHostname()).filter(p => p.filename === ns.getScriptName() && p.pid !== me)) ns.kill(p.pid);
+  for (const p of ns.ps(ns.getHostname()).filter(p => sameFile(p.filename, ns.getScriptName()) && p.pid !== me)) ns.kill(p.pid);
 }
-function pruneDuplicateHelpers(ns) {
+function pruneDuplicateHelpers(ns, children = CHILDREN) {
   for (const [file] of CHILDREN) {
-    const procs = ns.ps(ns.getHostname()).filter(p => p.filename === file).sort((a, b) => a.pid - b.pid);
-    for (const p of procs.slice(1)) ns.kill(p.pid);
+    const keep = children.some(([f]) => sameFile(f, file));
+    const procs = ns.ps(ns.getHostname()).filter(p => sameFile(p.filename, file)).sort((a, b) => a.pid - b.pid);
+    for (const p of procs.slice(keep ? 1 : 0)) ns.kill(p.pid);
   }
 }
+function localChildren(ns, opts) {
+  const host = ns.getHostname();
+  if (host === "home") return [];
+  if (host === "darkweb") return CHILDREN.filter(([f]) => f === "/dnet/scout.js" || f === "/dnet/static-solve.js");
+  return CHILDREN.filter(([f]) => !(opts.noHeartbleed && f === "/dnet/dynamic-solve.js"));
+}
+function sameFile(a, b) { return String(a).replace(/^\/+/, "") === String(b).replace(/^\/+/, ""); }
