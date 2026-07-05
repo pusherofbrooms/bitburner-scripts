@@ -9,11 +9,7 @@ export async function main(ns) {
 }
 async function tick(ns, opts) {
   if (ns.dnet?.isDarknetServer(ns.getHostname())) {
-    const targetFree = Math.max(opts.targetFree, helperRamTarget(ns));
-    for (let i = 0; i < opts.maxAttempts && freeRam(ns) < targetFree && ns.dnet.getBlockedRam() > 0; i++) {
-      const r = await safeAsync(() => ns.dnet.memoryReallocation(ns.getHostname()), null);
-      if (!r?.success) break;
-    }
+    await clearBlockedRam(ns, opts);
     if (opts.phish) await safeAsync(() => ns.dnet.phishingAttack(), null);
   }
   for (const [file, args] of DAEMONS) {
@@ -21,7 +17,12 @@ async function tick(ns, opts) {
     if (freeRam(ns) >= ns.getScriptRam(file)) ns.exec(file, ns.getHostname(), 1, ...args);
   }
 }
-function helperRamTarget(ns) {
-  return Math.ceil(DAEMONS.reduce((n, [f]) => n + (ns.fileExists(f) ? ns.getScriptRam(f) : 0), 0) + 1);
+async function clearBlockedRam(ns, opts) {
+  const limit = Math.min(opts.maxAttempts, opts.maxReallocs);
+  for (let i = 0; i < limit && ns.dnet.getBlockedRam() > 0; i++) {
+    const r = await safeAsync(() => ns.dnet.memoryReallocation(ns.getHostname()), null);
+    if (!r?.success) break;
+    if (i % 10 === 9) await ns.sleep(1);
+  }
 }
 function freeRam(ns) { return ns.getServerMaxRam(ns.getHostname()) - ns.getServerUsedRam(ns.getHostname()); }

@@ -1,11 +1,11 @@
 import { LABYRINTH_SCRIPT, PASSWORD_DB, ensureDnetFiles, argsEqual, parseArgs, pullHomeState, readJson, safe, trySecret } from "/dnet/lib.js";
 
 const CHILDREN = [
+  ["/dnet/repair.js", []],
   ["/dnet/sync-files.js", []],
   ["/dnet/scout.js", []],
   ["/dnet/static-solve.js", []],
-  ["/dnet/brute-worker.js", []],
-  ["/dnet/repair.js", []]
+  ["/dnet/brute-worker.js", []]
 ];
 const UNLOCK_SCRIPT = "/dnet/unlock-ram.js";
 const LABYRINTH_HOSTS = new Set(["th3_l4byr1nth", "cru3l_l4byr1nth", "m3rc1l3ss_l4byr1nth", "ub3r_l4byr1nth", "et3rn4l_l4byr1nth", "end13ss_l4byr1nth", "f1n4l_l4byr1nth", "b0nus_l4byr1nth"]);
@@ -65,10 +65,11 @@ async function unlockThen(ns, target, opts, thenScript, thenArgs, targetFree) {
 }
 async function unlockLocalForLabyrinth(ns, opts) {
   if (!ns.dnet?.isDarknetServer(ns.getHostname())) return;
-  if (freeRam(ns) >= opts.labyrinthFree) return;
-  for (let i = 0; i < opts.maxAttempts && freeRam(ns) < opts.labyrinthFree && ns.dnet.getBlockedRam() > 0; i++) {
+  const limit = Math.min(opts.maxAttempts, opts.maxReallocs);
+  for (let i = 0; i < limit && ns.dnet.getBlockedRam() > 0; i++) {
     const r = await ns.dnet.memoryReallocation(ns.getHostname());
     if (!r?.success) break;
+    if (i % 10 === 9) await ns.sleep(1);
   }
 }
 function normalTargetFree(ns, opts) {
