@@ -1,5 +1,5 @@
 import { parseArgs, safeAsync } from "/dnet/lib.js";
-const DAEMONS = [["/dnet/sync-files.js", []], ["/dnet/scout.js", []], ["/dnet/static-solve.js", []]];
+const DAEMONS = [["/dnet/sync-files.js", []], ["/dnet/scout.js", []], ["/dnet/static-solve.js", []], ["/dnet/dynamic-solve.js", []]];
 /** @param {NS} ns */
 export async function main(ns) {
   ns.disableLog("ALL");
@@ -13,6 +13,7 @@ async function tick(ns, opts) {
     if (opts.phish) await safeAsync(() => ns.dnet.phishingAttack(), null);
   }
   for (const [file, args] of DAEMONS) {
+    if (opts.noHeartbleed && file === "/dnet/dynamic-solve.js") continue;
     if (!ns.fileExists(file) || ns.ps().some(p => p.filename === file)) continue;
     if (freeRam(ns) >= ns.getScriptRam(file)) ns.exec(file, ns.getHostname(), 1, ...args);
   }

@@ -5,6 +5,7 @@ const CHILDREN = [
   ["/dnet/sync-files.js", []],
   ["/dnet/scout.js", []],
   ["/dnet/static-solve.js", []],
+  ["/dnet/dynamic-solve.js", []],
   ["/dnet/brute-worker.js", []]
 ];
 const UNLOCK_SCRIPT = "/dnet/unlock-ram.js";
@@ -35,6 +36,7 @@ async function tick(ns, opts) {
 }
 async function launchLocalHelpers(ns, opts) {
   for (const [file, args] of CHILDREN) {
+    if (opts.noHeartbleed && file === "/dnet/dynamic-solve.js") continue;
     if (!ns.fileExists(file) || ns.ps().some(p => p.filename === file && argsEqual(p.args, args))) continue;
     if (freeRam(ns) >= ns.getScriptRam(file)) ns.exec(file, ns.getHostname(), 1, ...args);
   }

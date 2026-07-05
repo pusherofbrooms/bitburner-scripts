@@ -2,7 +2,7 @@ import { SYNC_MANIFEST, SYNC_STATUS, LABYRINTH_SCRIPT, ensureDnetFiles, hashText
 
 const DEFAULT_FILES = [
   "/dnet/lib.js", "/dnet/bootstrap.js", "/dnet/sync-files.js", "/dnet/scout.js",
-  "/dnet/static-solve.js", "/dnet/brute-worker.js", "/dnet/log-harvest.js",
+  "/dnet/static-solve.js", "/dnet/dynamic-solve.js", "/dnet/brute-worker.js", "/dnet/log-harvest.js",
   "/dnet/repair.js", LABYRINTH_SCRIPT, "/dnet/unlock-ram.js"
 ];
 const RESTART_ON_CHANGE = new Set([LABYRINTH_SCRIPT]);
