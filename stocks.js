@@ -8,17 +8,27 @@ export async function main(ns) {
     ["buy", 0.58],
     ["sell", 0.52],
     ["maxPositions", 10],
-    ["cashFrac", 0.75],
-    ["shorts", false],
+    ["cashFrac", 0.95],
+    ["maxPaybackTicks", 12],
+    ["rotationHysteresis", 0.20],
+    ["noShorts", false],
     ["auto4s", true],
     ["liquidate", false],
     ["help", false],
   ]);
 
   if (flags.help) {
-    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy 0.58] [--sell 0.52] [--maxPositions 10] [--cashFrac 0.75] [--shorts false] [--auto4s true] [--liquidate false]");
-    ns.tprint("Note: --maxPositions only caps distinct positions before 4S data. After 4S, the script may use all symbols.");
+    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy .58] [--sell .52] [--maxPositions 10] [--cashFrac .95] [--maxPaybackTicks 12] [--rotationHysteresis .20] [--noShorts] [--auto4s true] [--liquidate]");
+    ns.tprint("Shorts are enabled automatically in BitNode 2 or with active Source-File 2; --noShorts disables them. maxPositions applies in all modes. cashFrac is the fraction of cash above reserve available to the whole portfolio. rotationHysteresis is the fractional score advantage required to displace a retained position.");
     return;
+  }
+
+  const numericFlags = ["reserve", "minTrade", "history", "minHistory", "buy", "sell", "maxPositions", "cashFrac", "maxPaybackTicks", "rotationHysteresis"];
+  for (const name of numericFlags) {
+    if (!Number.isFinite(Number(flags[name]))) {
+      ns.tprint(`ERROR: --${name} must be a finite number (received ${String(flags[name])}).`);
+      return;
+    }
   }
 
   const reserve = Number(flags.reserve);
@@ -29,7 +39,11 @@ export async function main(ns) {
   const sellThreshold = Math.max(0.5, Math.min(buyThreshold, Number(flags.sell)));
   const maxPositions = Math.max(1, Math.floor(Number(flags.maxPositions)));
   const cashFrac = Math.max(0.01, Math.min(1, Number(flags.cashFrac)));
-  const allowShorts = Boolean(flags.shorts);
+  const maxPaybackTicks = Math.max(1, Number(flags.maxPaybackTicks));
+  const rotationHysteresis = Math.max(0, Number(flags.rotationHysteresis));
+  const reset = ns.getResetInfo();
+  const shortsAvailable = reset.currentNode === 2 || (reset.ownedSF.get(2) ?? 0) > 0;
+  const allowShorts = shortsAvailable && !Boolean(flags.noShorts);
   const auto4s = Boolean(flags.auto4s);
 
   ns.disableLog("ALL");
@@ -46,7 +60,7 @@ export async function main(ns) {
     return;
   }
 
-  ns.print(`stocks.js started: reserve=${ns.format.number(reserve)}, minTrade=${ns.format.number(minTrade)}, shorts=${allowShorts}`);
+  ns.print(`stocks.js started: reserve=${ns.format.number(reserve)}, deploy=${(cashFrac * 100).toFixed(0)}%, shorts=${allowShorts ? "enabled" : shortsAvailable ? "disabled" : "unavailable"}`);
 
   while (true) {
     await ns.stock.nextUpdate();
@@ -55,8 +69,7 @@ export async function main(ns) {
 
     const has4s = ns.stock.has4SDataTixApi();
     const data = symbols.map((sym) => analyze(sym, has4s)).filter(Boolean);
-
-    sellWeakPositions(data);
+    rebalance(data, has4s);
     buyBestPositions(data, has4s);
     logStatus(data, has4s);
   }
@@ -74,16 +87,13 @@ export async function main(ns) {
 
   function maybeBuy4s() {
     if (!auto4s || ns.stock.has4SDataTixApi()) return;
-    const money = ns.getServerMoneyAvailable("home");
-    const cost = constants.MarketDataTixApi4SCost;
-    if (money > reserve + cost) ns.stock.purchase4SMarketDataTixApi();
+    if (ns.getServerMoneyAvailable("home") > reserve + constants.MarketDataTixApi4SCost) ns.stock.purchase4SMarketDataTixApi();
   }
 
   function recordPrices(symbols) {
     for (const sym of symbols) {
-      const price = ns.stock.getPrice(sym);
       const history = histories.get(sym);
-      history.push(price);
+      history.push(ns.stock.getPrice(sym));
       while (history.length > historyLen) history.shift();
     }
   }
@@ -96,124 +106,156 @@ export async function main(ns) {
     const maxShares = ns.stock.getMaxShares(sym);
     const spread = Math.max(0, (ask - bid) / price);
     const history = histories.get(sym);
-
-    let forecast;
-    let volatility;
-    let mode;
+    let forecast, volatility, mode;
     if (has4s) {
       forecast = ns.stock.getForecast(sym);
       volatility = ns.stock.getVolatility(sym);
       mode = "4S";
     } else {
       if (history.length < minHistory) return null;
-      const estimate = estimateFromHistory(history);
-      forecast = estimate.forecast;
-      volatility = estimate.volatility;
+      ({ forecast, volatility } = estimateFromHistory(history));
       mode = "hist";
     }
-
-    const longEdge = forecast - 0.5;
-    const shortEdge = 0.5 - forecast;
-    const longScore = longEdge * Math.max(volatility, 1e-6) - spread / 2;
-    const shortScore = shortEdge * Math.max(volatility, 1e-6) - spread / 2;
+    // The market's movement multiplier is uniform in [0, 1), so this score already
+    // includes its mean magnitude; it should not be multiplied by two.
+    const longRaw = Math.max(0, forecast - 0.5) * volatility;
+    const shortRaw = Math.max(0, 0.5 - forecast) * volatility;
+    const longScore = has4s ? longRaw : longRaw - spread / 2;
+    const shortScore = has4s ? shortRaw : shortRaw - spread / 2;
     return { sym, price, ask, bid, spread, forecast, volatility, mode, longShares, longAvg, shortShares, shortAvg, maxShares, longScore, shortScore };
   }
 
   function estimateFromHistory(history) {
-    let up = 0;
-    let down = 0;
-    let absLogReturn = 0;
+    let up = 0, down = 0, absLogReturn = 0;
     for (let i = 1; i < history.length; i++) {
-      const prev = history[i - 1];
-      const curr = history[i];
-      if (curr > prev) up++;
-      else if (curr < prev) down++;
-      absLogReturn += Math.abs(Math.log(curr / prev));
+      if (history[i] > history[i - 1]) up++;
+      else if (history[i] < history[i - 1]) down++;
+      absLogReturn += Math.abs(Math.log(history[i] / history[i - 1]));
     }
-
     const moves = up + down;
-    // Bayesian smoothing keeps short histories from producing overconfident 0%/100% forecasts.
-    const forecast = moves === 0 ? 0.5 : (up + 3) / (moves + 6);
-    const volatility = Math.max(1e-6, absLogReturn / Math.max(1, history.length - 1));
-    return { forecast, volatility };
+    return {
+      forecast: moves === 0 ? 0.5 : (up + 3) / (moves + 6),
+      volatility: Math.max(1e-6, absLogReturn / Math.max(1, history.length - 1)),
+    };
   }
 
-  function sellWeakPositions(data) {
+  function opportunities(data, has4s) {
+    const result = [];
     for (const stock of data) {
-      if (stock.longShares > 0 && stock.forecast < sellThreshold) {
-        const shares = stock.longShares;
-        const soldAt = ns.stock.sellStock(stock.sym, shares);
-        if (soldAt > 0) {
-          stock.longShares = 0;
-          ns.print(`SELL L ${stock.sym} x${shares} forecast=${stock.forecast.toFixed(3)}`);
-        }
-      }
-      if (stock.shortShares > 0 && stock.forecast > 1 - sellThreshold) {
-        const shares = stock.shortShares;
-        const soldAt = ns.stock.sellShort(stock.sym, shares);
-        if (soldAt > 0) {
-          stock.shortShares = 0;
-          ns.print(`SELL S ${stock.sym} x${shares} forecast=${stock.forecast.toFixed(3)}`);
-        }
-      }
+      if (stock.shortShares === 0 && stock.forecast >= buyThreshold && (has4s || stock.longScore > 0)) result.push({ stock, position: "L", score: stock.longScore });
+      if (allowShorts && stock.longShares === 0 && stock.forecast <= 1 - buyThreshold && (has4s || stock.shortScore > 0)) result.push({ stock, position: "S", score: stock.shortScore });
     }
+    return result.sort((a, b) => b.score - a.score);
+  }
+
+  function rebalance(data, has4s) {
+    // First preserve directional sell hysteresis regardless of portfolio ranking.
+    for (const stock of data) {
+      if (stock.longShares > 0 && stock.forecast < sellThreshold) sellPosition(stock, "L", "weak");
+      if (stock.shortShares > 0 && stock.forecast > 1 - sellThreshold) sellPosition(stock, "S", "weak");
+    }
+
+    // Positions between buy and sell thresholds remain eligible for retention.
+    const held = data.flatMap((stock) => {
+      if (stock.longShares > 0) return [{ stock, position: "L", score: stock.longScore }];
+      if (stock.shortShares > 0) return [{ stock, position: "S", score: stock.shortScore }];
+      return [];
+    });
+    const newcomers = opportunities(data, has4s).filter((c) => c.stock.longShares === 0 && c.stock.shortShares === 0);
+    while (held.length > maxPositions) {
+      const weakest = held.reduce((a, b) => a.score <= b.score ? a : b);
+      if (!sellPosition(weakest.stock, weakest.position, "position cap")) break;
+      held.splice(held.indexOf(weakest), 1);
+    }
+    while (held.length >= maxPositions && newcomers.length) {
+      const weakest = held.reduce((a, b) => a.score <= b.score ? a : b);
+      const bestNew = newcomers[0];
+      if (bestNew.score < weakest.score * (1 + rotationHysteresis)) break;
+      if (!viableRotation(bestNew, weakest, data)) break;
+      if (!sellPosition(weakest.stock, weakest.position, `rotate for ${bestNew.stock.sym}`)) break;
+      held.splice(held.indexOf(weakest), 1);
+      newcomers.shift();
+    }
+  }
+
+  function sellPosition(stock, position, reason) {
+    const shares = position === "L" ? stock.longShares : stock.shortShares;
+    if (shares <= 0) return false;
+    const soldAt = position === "L" ? ns.stock.sellStock(stock.sym, shares) : ns.stock.sellShort(stock.sym, shares);
+    if (soldAt > 0) {
+      if (position === "L") stock.longShares = 0;
+      else stock.shortShares = 0;
+      ns.print(`SELL ${position} ${stock.sym} x${shares} fc=${stock.forecast.toFixed(3)} (${reason})`);
+      return true;
+    }
+    return false;
+  }
+
+  function viableRotation(candidate, weakest, data) {
+    const weakestShares = weakest.position === "L" ? weakest.stock.longShares : weakest.stock.shortShares;
+    const proceeds = ns.stock.getSaleGain(weakest.stock.sym, weakestShares, weakest.position);
+    const cash = ns.getServerMoneyAvailable("home") + proceeds;
+    const liquidation = Math.max(0, liquidationValue(data) - proceeds);
+    const budget = deploymentBudget(cash, liquidation);
+    const shares = findAffordableShares(candidate.stock.sym, candidate.position, candidate.stock.maxShares, budget);
+    if (shares <= 0) return false;
+    const cost = ns.stock.getPurchaseCost(candidate.stock.sym, shares, candidate.position);
+    return cost >= minTrade && viableRoundTrip(candidate.stock, candidate.score, shares);
   }
 
   function buyBestPositions(data, has4s) {
-    const effectiveMaxPositions = has4s ? symbols.length : maxPositions;
-    const currentPositions = data.filter((s) => s.longShares > 0 || s.shortShares > 0).length;
-    let slots = Math.max(0, effectiveMaxPositions - currentPositions);
-
-    const candidates = [];
-    for (const stock of data) {
-      const hasPosition = stock.longShares > 0 || stock.shortShares > 0;
-      if (stock.shortShares === 0 && stock.forecast >= buyThreshold) {
-        candidates.push({ ...stock, position: "L", score: stock.longScore, isNewPosition: !hasPosition });
-      }
-      if (allowShorts && stock.longShares === 0 && stock.forecast <= 1 - buyThreshold) {
-        candidates.push({ ...stock, position: "S", score: stock.shortScore, isNewPosition: !hasPosition });
-      }
-    }
-    candidates.sort((a, b) => b.score - a.score);
-
-    for (const stock of candidates) {
-      if (stock.isNewPosition && slots <= 0) continue;
-      if (stock.score <= 0) continue;
-
-      const money = ns.getServerMoneyAvailable("home");
-      const spend = Math.max(0, (money - reserve) * cashFrac);
-      if (spend < minTrade + commission) break;
-
-      const heldShares = stock.longShares + stock.shortShares;
-      const maxBuyable = stock.maxShares - heldShares;
-      const sharesByCost = findAffordableShares(stock.sym, stock.position, maxBuyable, spend);
-      if (sharesByCost <= 0) continue;
-
-      const cost = ns.stock.getPurchaseCost(stock.sym, sharesByCost, stock.position);
-      if (cost < minTrade) continue;
-
-      const boughtAt = stock.position === "L"
-        ? ns.stock.buyStock(stock.sym, sharesByCost)
-        : ns.stock.buyShort(stock.sym, sharesByCost);
-      if (boughtAt > 0) {
-        ns.print(`BUY ${stock.position} ${stock.sym} x${sharesByCost} forecast=${stock.forecast.toFixed(3)} score=${stock.score.toExponential(2)}${stock.isNewPosition ? "" : " add"}`);
-        if (stock.isNewPosition) slots--;
-        stock.longShares += stock.position === "L" ? sharesByCost : 0;
-        stock.shortShares += stock.position === "S" ? sharesByCost : 0;
-      }
+    let slots = maxPositions - data.filter((s) => s.longShares > 0 || s.shortShares > 0).length;
+    let budget = deploymentBudget(ns.getServerMoneyAvailable("home"), liquidationValue(data));
+    for (const candidate of opportunities(data, has4s)) {
+      const stock = candidate.stock;
+      const isNew = stock.longShares === 0 && stock.shortShares === 0;
+      if (isNew && slots <= 0) continue;
+      const held = stock.longShares + stock.shortShares;
+      let shares = findAffordableShares(stock.sym, candidate.position, stock.maxShares - held, budget);
+      if (shares <= 0) continue;
+      let cost = ns.stock.getPurchaseCost(stock.sym, shares, candidate.position);
+      if (cost < minTrade || !viableRoundTrip(stock, candidate.score, shares)) continue;
+      const boughtAt = candidate.position === "L" ? ns.stock.buyStock(stock.sym, shares) : ns.stock.buyShort(stock.sym, shares);
+      if (boughtAt <= 0) continue;
+      budget -= cost;
+      if (candidate.position === "L") stock.longShares += shares;
+      else stock.shortShares += shares;
+      if (isNew) slots--;
+      ns.print(`BUY ${candidate.position} ${stock.sym} x${shares} fc=${stock.forecast.toFixed(3)} edge=${candidate.score.toExponential(2)} payback=${paybackTicks(stock, candidate.score, shares).toFixed(1)}t`);
+      if (budget < minTrade + commission) break;
     }
   }
 
-  function findAffordableShares(sym, position, maxShares, budget) {
-    maxShares = Math.max(0, Math.floor(maxShares));
-    if (maxShares <= 0) return 0;
+  function viableRoundTrip(stock, score, shares) {
+    return score > 0 && paybackTicks(stock, score, shares) <= maxPaybackTicks;
+  }
 
-    let low = 0;
-    let high = maxShares;
+  function paybackTicks(stock, score, shares) {
+    // At an unchanged price, long and short round trips have identical friction.
+    const friction = shares * (stock.ask - stock.bid) + 2 * commission;
+    return friction / Math.max(1e-9, shares * stock.price * score);
+  }
+
+  function liquidationValue(data) {
+    let value = 0;
+    for (const stock of data) {
+      if (stock.longShares > 0) value += ns.stock.getSaleGain(stock.sym, stock.longShares, "L");
+      if (stock.shortShares > 0) value += ns.stock.getSaleGain(stock.sym, stock.shortShares, "S");
+    }
+    return value;
+  }
+
+  function deploymentBudget(cash, liquidation) {
+    const wealth = cash + liquidation;
+    const targetInvested = Math.max(0, (wealth - reserve) * cashFrac);
+    return Math.max(0, Math.min(targetInvested - liquidation, cash - reserve));
+  }
+
+  function findAffordableShares(sym, position, maxShares, budget) {
+    let low = 0, high = Math.max(0, Math.floor(maxShares));
     while (low < high) {
       const mid = Math.ceil((low + high) / 2);
-      const cost = ns.stock.getPurchaseCost(sym, mid, position);
-      if (cost <= budget) low = mid;
+      if (ns.stock.getPurchaseCost(sym, mid, position) <= budget) low = mid;
       else high = mid - 1;
     }
     return low;
@@ -230,16 +272,24 @@ export async function main(ns) {
 
   function logStatus(data, has4s) {
     const positions = data.filter((s) => s.longShares > 0 || s.shortShares > 0);
-    const longValue = positions.reduce((sum, s) => sum + s.longShares * s.bid, 0);
-    const shortValue = positions.reduce((sum, s) => sum + s.shortShares * Math.max(0, s.shortAvg - s.ask), 0);
-    const best = [...data].sort((a, b) => Math.max(b.longScore, b.shortScore) - Math.max(a.longScore, a.shortScore)).slice(0, 5);
-
-    ns.clearLog();
-    ns.print(`mode=${has4s ? "4S" : "history"} cash=${ns.format.number(ns.getServerMoneyAvailable("home"))} positions=${positions.length}/${has4s ? symbols.length : maxPositions}`);
-    ns.print(`longValue=${ns.format.number(longValue)} shortPnLValue=${ns.format.number(shortValue)}`);
-    ns.print("best:");
-    for (const s of best) {
-      ns.print(`${s.sym} fc=${s.forecast.toFixed(3)} vol=${s.volatility.toFixed(4)} spread=${(s.spread * 100).toFixed(2)}% score=${Math.max(s.longScore, s.shortScore).toExponential(2)}`);
+    let liquidation = 0, pnl = 0;
+    for (const s of positions) {
+      if (s.longShares > 0) {
+        const gain = ns.stock.getSaleGain(s.sym, s.longShares, "L");
+        liquidation += gain;
+        pnl += gain - s.longShares * s.longAvg - commission;
+      }
+      if (s.shortShares > 0) {
+        const gain = ns.stock.getSaleGain(s.sym, s.shortShares, "S");
+        liquidation += gain;
+        pnl += gain - s.shortShares * s.shortAvg - commission;
+      }
     }
+    const best = opportunities(data, has4s).slice(0, 5);
+    ns.clearLog();
+    ns.print(`mode=${has4s ? "4S" : "history"} shorts=${allowShorts ? "on" : shortsAvailable ? "off" : "unavailable"} cash=${ns.format.number(ns.getServerMoneyAvailable("home"))} positions=${positions.length}/${maxPositions}`);
+    ns.print(`liquidation=${ns.format.number(liquidation)} unrealizedPnL=${ns.format.number(pnl)}`);
+    ns.print("best:");
+    for (const { stock: s, position, score } of best) ns.print(`${s.sym} ${position} fc=${s.forecast.toFixed(3)} vol=${s.volatility.toFixed(4)} spread=${(s.spread * 100).toFixed(2)}% edge=${score.toExponential(2)}`);
   }
 }
