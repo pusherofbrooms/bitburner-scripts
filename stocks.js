@@ -9,7 +9,7 @@ export async function main(ns) {
     ["sell", 0.52],
     ["maxPositions", 10],
     ["maxPaybackTicks", 12],
-    ["rotationHysteresis", 0.20],
+    ["maxRotationPaybackTicks", 12],
     ["noShorts", false],
     ["auto4s", true],
     ["liquidate", false],
@@ -17,12 +17,12 @@ export async function main(ns) {
   ]);
 
   if (flags.help) {
-    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy .58] [--sell .52] [--maxPositions 10] [--maxPaybackTicks 12] [--rotationHysteresis .20] [--noShorts] [--auto4s true] [--liquidate]");
-    ns.tprint("Shorts are enabled automatically in BitNode 2 or with active Source-File 2; --noShorts disables them. maxPositions applies in all modes. rotationHysteresis is the fractional score advantage required to displace a retained position.");
+    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy .58] [--sell .52] [--maxPositions 10] [--maxPaybackTicks 12] [--maxRotationPaybackTicks 12] [--noShorts] [--auto4s true] [--liquidate]");
+    ns.tprint("Shorts are enabled automatically in BitNode 2 or with active Source-File 2; --noShorts disables them. maxPositions applies in all modes. Rotation requires its incremental expected dollar profit to repay replacement friction within maxRotationPaybackTicks.");
     return;
   }
 
-  const numericFlags = ["reserve", "minTrade", "history", "minHistory", "buy", "sell", "maxPositions", "maxPaybackTicks", "rotationHysteresis"];
+  const numericFlags = ["reserve", "minTrade", "history", "minHistory", "buy", "sell", "maxPositions", "maxPaybackTicks", "maxRotationPaybackTicks"];
   for (const name of numericFlags) {
     if (!Number.isFinite(Number(flags[name]))) {
       ns.tprint(`ERROR: --${name} must be a finite number (received ${String(flags[name])}).`);
@@ -38,7 +38,7 @@ export async function main(ns) {
   const sellThreshold = Math.max(0.5, Math.min(buyThreshold, Number(flags.sell)));
   const maxPositions = Math.max(1, Math.floor(Number(flags.maxPositions)));
   const maxPaybackTicks = Math.max(1, Number(flags.maxPaybackTicks));
-  const rotationHysteresis = Math.max(0, Number(flags.rotationHysteresis));
+  const maxRotationPaybackTicks = Math.max(1, Number(flags.maxRotationPaybackTicks));
   const reset = ns.getResetInfo();
   const shortsAvailable = reset.currentNode === 2 || (reset.ownedSF.get(2) ?? 0) > 0;
   const allowShorts = shortsAvailable && !Boolean(flags.noShorts);
@@ -67,8 +67,8 @@ export async function main(ns) {
 
     const has4s = ns.stock.has4SDataTixApi();
     const data = symbols.map((sym) => analyze(sym, has4s)).filter(Boolean);
-    rebalance(data, has4s);
-    buyBestPositions(data, has4s);
+    const rotatedSymbols = rebalance(data, has4s);
+    buyBestPositions(data, has4s, rotatedSymbols);
     logStatus(data, has4s);
   }
 
@@ -147,6 +147,7 @@ export async function main(ns) {
   }
 
   function rebalance(data, has4s) {
+    const rotatedSymbols = new Set();
     // First preserve directional sell hysteresis regardless of portfolio ranking.
     for (const stock of data) {
       if (stock.longShares > 0 && stock.forecast < sellThreshold) sellPosition(stock, "L", "weak");
@@ -165,15 +166,57 @@ export async function main(ns) {
       if (!sellPosition(weakest.stock, weakest.position, "position cap")) break;
       held.splice(held.indexOf(weakest), 1);
     }
-    while (held.length >= maxPositions && newcomers.length) {
-      const weakest = held.reduce((a, b) => a.score <= b.score ? a : b);
-      const bestNew = newcomers[0];
-      if (bestNew.score < weakest.score * (1 + rotationHysteresis)) break;
-      if (!viableRotation(bestNew, weakest, data)) break;
-      if (!sellPosition(weakest.stock, weakest.position, `rotate for ${bestNew.stock.sym}`)) break;
-      held.splice(held.indexOf(weakest), 1);
-      newcomers.shift();
+    const currentBudget = deploymentBudget(ns.getServerMoneyAvailable("home"));
+    const canOpenWithoutRotation = newcomers.some((candidate) => {
+      const shares = findAffordableShares(candidate.stock.sym, candidate.position, candidate.stock.maxShares, currentBudget);
+      return shares > 0 && ns.stock.getPurchaseCost(candidate.stock.sym, shares, candidate.position) >= minTrade
+        && viableRoundTrip(candidate.stock, candidate.score, shares);
+    });
+    if (held.length < maxPositions && canOpenWithoutRotation) return rotatedSymbols;
+
+    // Build a fixed matching from the tick's original incumbents and newcomers.
+    // This prevents a replacement bought below from becoming another incumbent.
+    const plans = [];
+    for (const incumbent of held) {
+      for (const candidate of newcomers) {
+        const plan = rotationPlan(candidate, incumbent);
+        if (plan) plans.push(plan);
+      }
     }
+    plans.sort((a, b) => b.netBenefit - a.netBenefit);
+    const assignedIncumbents = new Set();
+    const assignedCandidates = new Set();
+    const assignments = [];
+    for (const plan of plans) {
+      if (assignedIncumbents.has(plan.incumbent) || assignedCandidates.has(plan.candidate)) continue;
+      assignedIncumbents.add(plan.incumbent);
+      assignedCandidates.add(plan.candidate);
+      assignments.push(plan);
+    }
+
+    // Execute at most one rotation per update. This keeps later plans from using cash
+    // or quotes invalidated by an earlier replacement.
+    for (const planned of assignments.slice(0, 1)) {
+      const incumbentProfit = planned.incumbentProfit;
+      if (!sellPosition(planned.incumbent.stock, planned.incumbent.position, `rotate for ${planned.candidate.stock.sym}`)) continue;
+      const plan = postSaleRotationPlan(planned.candidate, incumbentProfit, has4s);
+      if (!plan) {
+        ns.print(`SKIP replacement ${planned.candidate.stock.sym}: no longer viable after sale`);
+        continue;
+      }
+      const boughtAt = plan.candidate.position === "L"
+        ? ns.stock.buyStock(plan.candidate.stock.sym, plan.shares)
+        : ns.stock.buyShort(plan.candidate.stock.sym, plan.shares);
+      if (boughtAt <= 0) {
+        ns.print(`WARN replacement buy failed for ${plan.candidate.stock.sym} after post-sale preflight`);
+        continue;
+      }
+      if (plan.candidate.position === "L") plan.candidate.stock.longShares += plan.shares;
+      else plan.candidate.stock.shortShares += plan.shares;
+      rotatedSymbols.add(plan.candidate.stock.sym);
+      ns.print(`BUY ${plan.candidate.position} ${plan.candidate.stock.sym} x${plan.shares} (rotation; +${ns.format.number(plan.incremental)}/tick, ${plan.payback.toFixed(1)}t payback)`);
+    }
+    return rotatedSymbols;
   }
 
   function sellPosition(stock, position, reason) {
@@ -189,22 +232,49 @@ export async function main(ns) {
     return false;
   }
 
-  function viableRotation(candidate, weakest, data) {
-    const weakestShares = weakest.position === "L" ? weakest.stock.longShares : weakest.stock.shortShares;
-    const proceeds = ns.stock.getSaleGain(weakest.stock.sym, weakestShares, weakest.position);
-    const cash = ns.getServerMoneyAvailable("home") + proceeds;
-    const budget = deploymentBudget(cash);
+  function rotationPlan(candidate, incumbent) {
+    const incumbentShares = incumbent.position === "L" ? incumbent.stock.longShares : incumbent.stock.shortShares;
+    const proceeds = ns.stock.getSaleGain(incumbent.stock.sym, incumbentShares, incumbent.position);
+    const budget = deploymentBudget(ns.getServerMoneyAvailable("home") + proceeds);
     const shares = findAffordableShares(candidate.stock.sym, candidate.position, candidate.stock.maxShares, budget);
-    if (shares <= 0) return false;
-    const cost = ns.stock.getPurchaseCost(candidate.stock.sym, shares, candidate.position);
-    return cost >= minTrade && viableRoundTrip(candidate.stock, candidate.score, shares);
+    const incumbentProfit = incumbentShares * incumbent.stock.price * incumbent.score;
+    const plan = evaluateRotation(candidate, shares, incumbentProfit);
+    return plan && { ...plan, incumbent, incumbentProfit };
   }
 
-  function buyBestPositions(data, has4s) {
+  function postSaleRotationPlan(candidate, incumbentProfit, has4s) {
+    const stock = candidate.stock;
+    stock.price = ns.stock.getPrice(stock.sym);
+    stock.ask = ns.stock.getAskPrice(stock.sym);
+    stock.bid = ns.stock.getBidPrice(stock.sym);
+    stock.spread = Math.max(0, (stock.ask - stock.bid) / stock.price);
+    stock.maxShares = ns.stock.getMaxShares(stock.sym);
+    const raw = candidate.position === "L" ? Math.max(0, stock.forecast - 0.5) * stock.volatility : Math.max(0, 0.5 - stock.forecast) * stock.volatility;
+    candidate.score = has4s ? raw : raw - stock.spread / 2;
+    const shares = findAffordableShares(stock.sym, candidate.position, stock.maxShares, deploymentBudget(ns.getServerMoneyAvailable("home")));
+    return evaluateRotation(candidate, shares, incumbentProfit);
+  }
+
+  function evaluateRotation(candidate, shares, incumbentProfit) {
+    if (shares <= 0) return null;
+    const cost = ns.stock.getPurchaseCost(candidate.stock.sym, shares, candidate.position);
+    if (cost < minTrade || !viableRoundTrip(candidate.stock, candidate.score, shares)) return null;
+    const incremental = shares * candidate.stock.price * candidate.score - incumbentProfit;
+    if (incremental <= 0) return null;
+    // Sale gain already accounts for incumbent exit friction in replacement sizing.
+    // Payback therefore charges only the newcomer's complete round-trip friction.
+    const friction = shares * (candidate.stock.ask - candidate.stock.bid) + 2 * commission;
+    const payback = friction / incremental;
+    if (payback > maxRotationPaybackTicks) return null;
+    return { candidate, shares, incremental, payback, netBenefit: incremental * maxRotationPaybackTicks - friction };
+  }
+
+  function buyBestPositions(data, has4s, rotatedSymbols) {
     let slots = maxPositions - data.filter((s) => s.longShares > 0 || s.shortShares > 0).length;
     let budget = deploymentBudget(ns.getServerMoneyAvailable("home"));
     for (const candidate of opportunities(data, has4s)) {
       const stock = candidate.stock;
+      if (rotatedSymbols.has(stock.sym)) continue;
       const isNew = stock.longShares === 0 && stock.shortShares === 0;
       if (isNew && slots <= 0) continue;
       const held = stock.longShares + stock.shortShares;
