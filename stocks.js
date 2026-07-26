@@ -8,7 +8,6 @@ export async function main(ns) {
     ["buy", 0.58],
     ["sell", 0.52],
     ["maxPositions", 10],
-    ["cashFrac", 0.95],
     ["maxPaybackTicks", 12],
     ["rotationHysteresis", 0.20],
     ["noShorts", false],
@@ -18,12 +17,12 @@ export async function main(ns) {
   ]);
 
   if (flags.help) {
-    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy .58] [--sell .52] [--maxPositions 10] [--cashFrac .95] [--maxPaybackTicks 12] [--rotationHysteresis .20] [--noShorts] [--auto4s true] [--liquidate]");
-    ns.tprint("Shorts are enabled automatically in BitNode 2 or with active Source-File 2; --noShorts disables them. maxPositions applies in all modes. cashFrac is the fraction of cash above reserve available to the whole portfolio. rotationHysteresis is the fractional score advantage required to displace a retained position.");
+    ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy .58] [--sell .52] [--maxPositions 10] [--maxPaybackTicks 12] [--rotationHysteresis .20] [--noShorts] [--auto4s true] [--liquidate]");
+    ns.tprint("Shorts are enabled automatically in BitNode 2 or with active Source-File 2; --noShorts disables them. maxPositions applies in all modes. rotationHysteresis is the fractional score advantage required to displace a retained position.");
     return;
   }
 
-  const numericFlags = ["reserve", "minTrade", "history", "minHistory", "buy", "sell", "maxPositions", "cashFrac", "maxPaybackTicks", "rotationHysteresis"];
+  const numericFlags = ["reserve", "minTrade", "history", "minHistory", "buy", "sell", "maxPositions", "maxPaybackTicks", "rotationHysteresis"];
   for (const name of numericFlags) {
     if (!Number.isFinite(Number(flags[name]))) {
       ns.tprint(`ERROR: --${name} must be a finite number (received ${String(flags[name])}).`);
@@ -38,7 +37,6 @@ export async function main(ns) {
   const buyThreshold = Math.max(0.51, Math.min(0.99, Number(flags.buy)));
   const sellThreshold = Math.max(0.5, Math.min(buyThreshold, Number(flags.sell)));
   const maxPositions = Math.max(1, Math.floor(Number(flags.maxPositions)));
-  const cashFrac = Math.max(0.01, Math.min(1, Number(flags.cashFrac)));
   const maxPaybackTicks = Math.max(1, Number(flags.maxPaybackTicks));
   const rotationHysteresis = Math.max(0, Number(flags.rotationHysteresis));
   const reset = ns.getResetInfo();
@@ -60,7 +58,7 @@ export async function main(ns) {
     return;
   }
 
-  ns.print(`stocks.js started: reserve=${ns.format.number(reserve)}, deploy=${(cashFrac * 100).toFixed(0)}%, shorts=${allowShorts ? "enabled" : shortsAvailable ? "disabled" : "unavailable"}`);
+  ns.print(`stocks.js started: reserve=${ns.format.number(reserve)}, shorts=${allowShorts ? "enabled" : shortsAvailable ? "disabled" : "unavailable"}`);
 
   while (true) {
     await ns.stock.nextUpdate();
@@ -195,8 +193,7 @@ export async function main(ns) {
     const weakestShares = weakest.position === "L" ? weakest.stock.longShares : weakest.stock.shortShares;
     const proceeds = ns.stock.getSaleGain(weakest.stock.sym, weakestShares, weakest.position);
     const cash = ns.getServerMoneyAvailable("home") + proceeds;
-    const liquidation = Math.max(0, liquidationValue(data) - proceeds);
-    const budget = deploymentBudget(cash, liquidation);
+    const budget = deploymentBudget(cash);
     const shares = findAffordableShares(candidate.stock.sym, candidate.position, candidate.stock.maxShares, budget);
     if (shares <= 0) return false;
     const cost = ns.stock.getPurchaseCost(candidate.stock.sym, shares, candidate.position);
@@ -205,7 +202,7 @@ export async function main(ns) {
 
   function buyBestPositions(data, has4s) {
     let slots = maxPositions - data.filter((s) => s.longShares > 0 || s.shortShares > 0).length;
-    let budget = deploymentBudget(ns.getServerMoneyAvailable("home"), liquidationValue(data));
+    let budget = deploymentBudget(ns.getServerMoneyAvailable("home"));
     for (const candidate of opportunities(data, has4s)) {
       const stock = candidate.stock;
       const isNew = stock.longShares === 0 && stock.shortShares === 0;
@@ -236,19 +233,8 @@ export async function main(ns) {
     return friction / Math.max(1e-9, shares * stock.price * score);
   }
 
-  function liquidationValue(data) {
-    let value = 0;
-    for (const stock of data) {
-      if (stock.longShares > 0) value += ns.stock.getSaleGain(stock.sym, stock.longShares, "L");
-      if (stock.shortShares > 0) value += ns.stock.getSaleGain(stock.sym, stock.shortShares, "S");
-    }
-    return value;
-  }
-
-  function deploymentBudget(cash, liquidation) {
-    const wealth = cash + liquidation;
-    const targetInvested = Math.max(0, (wealth - reserve) * cashFrac);
-    return Math.max(0, Math.min(targetInvested - liquidation, cash - reserve));
+  function deploymentBudget(cash) {
+    return Math.max(0, cash - reserve);
   }
 
   function findAffordableShares(sym, position, maxShares, budget) {
