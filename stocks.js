@@ -18,7 +18,7 @@ export async function main(ns) {
 
   if (flags.help) {
     ns.tprint("Usage: run stocks.js [--reserve 25e6] [--minTrade 5e6] [--history 70] [--minHistory 40] [--buy .58] [--sell .52] [--maxPositions 10] [--maxPaybackTicks 12] [--maxRotationPaybackTicks 12] [--noShorts] [--auto4s true] [--liquidate]");
-    ns.tprint("Shorts are enabled automatically in BitNode 2 or with active Source-File 2; --noShorts disables them. maxPositions applies in all modes. Rotation requires its incremental expected dollar profit to repay replacement friction within maxRotationPaybackTicks.");
+    ns.tprint("Shorts are enabled automatically in BitNode 8 or with active Source-File 8 level 2; --noShorts disables them. maxPositions applies in all modes. Rotation requires its incremental expected dollar profit to repay replacement friction within maxRotationPaybackTicks.");
     return;
   }
 
@@ -40,7 +40,7 @@ export async function main(ns) {
   const maxPaybackTicks = Math.max(1, Number(flags.maxPaybackTicks));
   const maxRotationPaybackTicks = Math.max(1, Number(flags.maxRotationPaybackTicks));
   const reset = ns.getResetInfo();
-  const shortsAvailable = reset.currentNode === 2 || (reset.ownedSF.get(2) ?? 0) > 0;
+  const shortsAvailable = reset.currentNode === 8 || (reset.ownedSF.get(8) ?? 0) >= 2;
   const allowShorts = shortsAvailable && !Boolean(flags.noShorts);
   const auto4s = Boolean(flags.auto4s);
 
