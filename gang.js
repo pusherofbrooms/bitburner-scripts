@@ -1,5 +1,30 @@
+const DEFAULTS = {
+	moneyWeight: 1,
+	respectWeight: 1,
+	wantedCleanupStart: 0.95,
+	wantedCleanupStop: 0.99,
+	equipmentBudget: 0.10,
+	equipmentItemLimit: 0.02,
+};
+
 /** @param {NS} ns **/
 export async function main(ns) {
+	const flags = ns.flags([
+		["money-weight", DEFAULTS.moneyWeight],
+		["respect-weight", DEFAULTS.respectWeight],
+		["equipment-budget", DEFAULTS.equipmentBudget],
+		["equipment-item-limit", DEFAULTS.equipmentItemLimit],
+	]);
+	const config = {
+		moneyWeight: nonnegativeFlag(flags["money-weight"], DEFAULTS.moneyWeight),
+		respectWeight: nonnegativeFlag(flags["respect-weight"], DEFAULTS.respectWeight),
+		equipmentBudget: nonnegativeFlag(flags["equipment-budget"], DEFAULTS.equipmentBudget),
+		equipmentItemLimit: nonnegativeFlag(flags["equipment-item-limit"], DEFAULTS.equipmentItemLimit),
+	};
+	if (config.moneyWeight === 0 && config.respectWeight === 0) {
+		config.moneyWeight = DEFAULTS.moneyWeight;
+		config.respectWeight = DEFAULTS.respectWeight;
+	}
 	ns.disableLog("ALL");
 	if (!ns.gang.inGang() && !joinGang(ns)) {
 		ns.tprint("ERROR: Could not create a combat gang. Join an eligible combat faction first.");
@@ -7,12 +32,16 @@ export async function main(ns) {
 	}
 
 	let territoryWinChance = 1;
+	let cleaningWanted = false;
 	while (true) {
 		recruit(ns);
-		equipMembers(ns);
+		equipMembers(ns, config);
 		ascend(ns);
 		territoryWinChance = territoryWar(ns);
-		assignMembers(ns, territoryWinChance);
+		const wantedPenalty = ns.gang.getGangInformation().wantedPenalty;
+		if (!cleaningWanted && wantedPenalty <= DEFAULTS.wantedCleanupStart) cleaningWanted = true;
+		else if (cleaningWanted && wantedPenalty >= DEFAULTS.wantedCleanupStop) cleaningWanted = false;
+		assignMembers(ns, territoryWinChance, cleaningWanted, config);
 		await ns.gang.nextUpdate();
 	}
 }
@@ -71,23 +100,27 @@ function ascend(ns) {
 	}
 }
 
-function equipMembers(ns) {
+function equipMembers(ns, config) {
 	let members = ns.gang.getMemberNames();
+	const availableMoney = ns.getServerMoneyAvailable("home");
+	let updateBudget = availableMoney * config.equipmentBudget;
+	const itemLimit = availableMoney * config.equipmentItemLimit;
 	for (let member of members) {
 		let memberInfo = ns.gang.getMemberInformation(member);
 		for (let equipment of combatEquipment(ns)) {
 			if (memberInfo.upgrades.includes(equipment) || memberInfo.augmentations.includes(equipment)) {
 				continue;
 			}
-			if (ns.gang.getEquipmentCost(equipment) < (0.01 * ns.getServerMoneyAvailable("home"))) {
+			const cost = ns.gang.getEquipmentCost(equipment);
+			if (cost <= itemLimit && cost <= updateBudget) {
 				ns.print("Purchase equipment for " + member + ": " + equipment);
-				ns.gang.purchaseEquipment(member, equipment);
+				if (ns.gang.purchaseEquipment(member, equipment)) updateBudget -= cost;
 			}
 		}
 	}
 }
 
-function assignMembers(ns, territoryWinChance) {
+function assignMembers(ns, territoryWinChance, cleaningWanted, config) {
 	let members = ns.gang.getMemberNames();
 	members.sort((a, b) => memberCombatStats(ns, b) - memberCombatStats(ns, a));
 	let gangInfo = ns.gang.getGangInformation();
@@ -107,7 +140,7 @@ function assignMembers(ns, territoryWinChance) {
 		else if (memberCombatStats(ns, member) < 50) {
 			highestValueTask = "Train Combat";
 		}
-		else if (workJobs > 0 && wantedLevelIncrease > 0) {
+		else if (workJobs > 0 && cleaningWanted && (wantedLevelIncrease >= 0 || !hasFormulas)) {
 			workJobs--;
 			highestValueTask = "Vigilante Justice";
 			if (hasFormulas) {
@@ -117,17 +150,21 @@ function assignMembers(ns, territoryWinChance) {
 		else if (workJobs > 0 && memberCombatStats(ns, member) > 50) {
 			workJobs--;
 			if (hasFormulas) {
-				for (const task of tasks) {
-					let value = taskValue(ns, gangInfo, member, task);
-					if (value > highestTaskValue) {
-						highestTaskValue = value;
-						highestValueTask = task;
+				const taskMetrics = tasks.map((task) => taskGains(ns, gangInfo, member, task, cleaningWanted));
+				const maxMoney = Math.max(1, ...taskMetrics.map((value) => value.money));
+				const maxRespect = Math.max(1, ...taskMetrics.map((value) => value.respect));
+				for (const value of taskMetrics) {
+					const score = config.moneyWeight * value.money / maxMoney
+						+ config.respectWeight * value.respect / maxRespect;
+					if (value.allowed && score > highestTaskValue) {
+						highestTaskValue = score;
+						highestValueTask = value.task;
 					}
 				}
 				wantedLevelIncrease += ns.formulas.gang.wantedLevelGain(gangInfo, memberInfo, ns.gang.getTaskStats(highestValueTask));
 			}
 			else {
-				highestValueTask = fallbackTask(gangInfo);
+				highestValueTask = fallbackTask(gangInfo, cleaningWanted);
 			}
 		}
 
@@ -139,31 +176,30 @@ function assignMembers(ns, territoryWinChance) {
 	}
 }
 
-function taskValue(ns, gangInfo, member, task) {
+function taskGains(ns, gangInfo, member, task, cleaningWanted) {
 	// determine money and reputation gain for a task
 	let respectGain = ns.formulas.gang.respectGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(task));
 	let moneyGain = ns.formulas.gang.moneyGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(task));
-	let wantedLevelIncrease = ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(task));
-	let vigilanteWantedDecrease = ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats("Vigilante Justice"));
-	if ( wantedLevelIncrease + vigilanteWantedDecrease > 0){
-		// avoid tasks where more than one vigilante justice is needed to compensate
-		return 0;
-	}
-	else if ( (2 * wantedLevelIncrease) + vigilanteWantedDecrease > 0){
-		// Simple compensation for wanted level since we need more vigilante then
-		// ToDo: Could be a more sophisticated formula here
-		moneyGain *= 0.75;
+	if (cleaningWanted) {
+		let wantedLevelIncrease = ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats(task));
+		let vigilanteWantedDecrease = ns.formulas.gang.wantedLevelGain(gangInfo, ns.gang.getMemberInformation(member), ns.gang.getTaskStats("Vigilante Justice"));
+		if (wantedLevelIncrease + vigilanteWantedDecrease > 0) {
+			// avoid tasks where more than one vigilante justice is needed to compensate
+			return { task, money: 0, respect: 0, allowed: false };
+		}
+		else if ((2 * wantedLevelIncrease) + vigilanteWantedDecrease > 0) {
+			// Simple compensation for wanted level since we need more vigilante then
+			// ToDo: Could be a more sophisticated formula here
+			moneyGain *= 0.75;
+		}
 	}
 
-	if (ns.getServerMoneyAvailable("home") > 10e12) {
-		// if we got all augmentations, money from gangs is probably not relevant anymore; so focus on respect
-		// set money gain at least to respect gain in case of low money gain tasks like terrorism
-		moneyGain /= 100; // compare money to respect gain value; give respect more priority
-		moneyGain = Math.max(moneyGain, respectGain);
-	}
-	
-	// return a value based on money gain and respect gain
-	return respectGain * moneyGain;
+	return { task, money: Math.max(0, moneyGain), respect: Math.max(0, respectGain), allowed: true };
+}
+
+function nonnegativeFlag(value, fallback) {
+	const numericValue = Number(value);
+	return Number.isFinite(numericValue) ? Math.max(0, numericValue) : fallback;
 }
 
 function memberCombatStats(ns, member) {
@@ -202,8 +238,8 @@ function combatEquipment(ns) {
 	});
 }
 
-function fallbackTask(gangInfo) {
-	if (gangInfo.wantedPenalty < 0.9 || gangInfo.wantedLevelGainRate > 0) {
+function fallbackTask(gangInfo, cleaningWanted) {
+	if (cleaningWanted) {
 		return "Vigilante Justice";
 	}
 	if (gangInfo.territory < 0.5) {
