@@ -74,7 +74,7 @@ function priceMaterial(ns, c, divisionName, city, materialName, common) {
   const price = optimalPrice(material.marketPrice, markupLimit, potential, expected);
 
   c.sellMaterial(divisionName, city, materialName, "MAX", String(price));
-  ns.print(`${divisionName}/${city}/${materialName}: ${ns.formatNumber(price)}`);
+  ns.print(`${divisionName}/${city}/${materialName}: ${ns.format.number(price)}`);
 }
 
 function priceProduct(ns, c, data, divisionName, city, productName, common, calibrationPriceMultiplier) {
@@ -99,7 +99,7 @@ function priceProduct(ns, c, data, divisionName, city, productName, common, cali
       expected: inventoryLiquidationPerSecond(product.stored),
     };
     c.sellProduct(divisionName, city, productName, "MAX", String(price), false);
-    ns.print(`${divisionName}/${city}/${productName}: calibrating at ${ns.formatNumber(price)}`);
+    ns.print(`${divisionName}/${city}/${productName}: calibrating at ${ns.format.number(price)}`);
     return;
   }
 
@@ -107,7 +107,7 @@ function priceProduct(ns, c, data, divisionName, city, productName, common, cali
   const expected = inventoryLiquidationPerSecond(product.stored);
   const price = optimalPrice(marketPrice, markupLimit, potential, expected);
   c.sellProduct(divisionName, city, productName, "MAX", String(price), false);
-  ns.print(`${divisionName}/${city}/${productName}: ${ns.formatNumber(price)} markup=${ns.formatNumber(record.markup)}`);
+  ns.print(`${divisionName}/${city}/${productName}: ${ns.format.number(price)} markup=${ns.format.number(record.markup)}`);
 }
 
 function observeCalibrations(ns, c, data) {
@@ -132,7 +132,7 @@ function observeCalibrations(ns, c, data) {
       if (wasPriceLimited && Number.isFinite(markup) && markup > 0) {
         record.markup = markup;
         delete record.pending;
-        ns.tprint(`Calibrated ${divisionName}/${city}/${productName}: markup=${ns.formatNumber(markup)}`);
+        ns.tprint(`Calibrated ${divisionName}/${city}/${productName}: markup=${ns.format.number(markup)}`);
       }
     } catch {
       // Divisions, cities, and products may disappear while the script is running.
