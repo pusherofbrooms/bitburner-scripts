@@ -3,17 +3,21 @@
  * Requires: Warehouse API, Office API, Market Research - Demand, Market Data - Competition.
  * Keeps per-city product markup calibration in /corp/ta2-calibration.txt.
  *
- * Args: [calibrationPriceMultiplier=1e6]
+ * Args: [calibrationPriceMultiplier=1e6] [clearanceMultiplier=1.01]
  *
  * @param {NS} ns
  */
 export async function main(ns) {
   const c = ns.corporation;
   const calibrationPriceMultiplier = Number(ns.args[0] ?? 1e6);
+  const clearanceMultiplier = Number(ns.args[1] ?? 1.01);
   const calibrationFile = "/corp/ta2-calibration.txt";
 
   if (!Number.isFinite(calibrationPriceMultiplier) || calibrationPriceMultiplier <= 1) {
     throw new Error("calibrationPriceMultiplier must be a finite number greater than 1.");
+  }
+  if (!Number.isFinite(clearanceMultiplier) || clearanceMultiplier < 1) {
+    throw new Error("clearanceMultiplier must be a finite number of at least 1.");
   }
 
   ns.disableLog("sleep");
@@ -51,10 +55,10 @@ export async function main(ns) {
         const common = advertFactor * salesMult * divisionSalesMult * businessFactor;
 
         for (const materialName of industry.producedMaterials ?? []) {
-          priceMaterial(ns, c, divisionName, city, materialName, common);
+          priceMaterial(ns, c, divisionName, city, materialName, common, clearanceMultiplier);
         }
         for (const productName of division.products) {
-          priceProduct(ns, c, data, divisionName, city, productName, common, calibrationPriceMultiplier);
+          priceProduct(ns, c, data, divisionName, city, productName, common, calibrationPriceMultiplier, clearanceMultiplier);
         }
       }
     }
@@ -62,7 +66,7 @@ export async function main(ns) {
   }
 }
 
-function priceMaterial(ns, c, divisionName, city, materialName, common) {
+function priceMaterial(ns, c, divisionName, city, materialName, common, clearanceMultiplier) {
   const material = c.getMaterial(divisionName, city, materialName);
   if (material.stored <= 0 || material.marketPrice <= 0) return;
 
@@ -70,14 +74,14 @@ function priceMaterial(ns, c, divisionName, city, materialName, common) {
   const itemFactor = material.quality + 0.001;
   const marketFactor = Math.max(0.1, (material.demand * (100 - material.competition)) / 100);
   const potential = itemFactor * marketFactor * common;
-  const expected = inventoryLiquidationPerSecond(material.stored);
+  const expected = inventoryLiquidationPerSecond(material.stored) * clearanceMultiplier;
   const price = optimalPrice(material.marketPrice, markupLimit, potential, expected);
 
   c.sellMaterial(divisionName, city, materialName, "MAX", String(price));
   ns.print(`${divisionName}/${city}/${materialName}: ${ns.format.number(price)}`);
 }
 
-function priceProduct(ns, c, data, divisionName, city, productName, common, calibrationPriceMultiplier) {
+function priceProduct(ns, c, data, divisionName, city, productName, common, calibrationPriceMultiplier, clearanceMultiplier) {
   const product = c.getProduct(divisionName, city, productName);
   if (product.developmentProgress < 100 || product.stored <= 0 || product.productionCost <= 0) return;
 
@@ -104,7 +108,7 @@ function priceProduct(ns, c, data, divisionName, city, productName, common, cali
   }
 
   const markupLimit = Math.max(product.effectiveRating, 0.001) / record.markup;
-  const expected = inventoryLiquidationPerSecond(product.stored);
+  const expected = inventoryLiquidationPerSecond(product.stored) * clearanceMultiplier;
   const price = optimalPrice(marketPrice, markupLimit, potential, expected);
   c.sellProduct(divisionName, city, productName, "MAX", String(price), false);
   ns.print(`${divisionName}/${city}/${productName}: ${ns.format.number(price)} markup=${ns.format.number(record.markup)}`);
