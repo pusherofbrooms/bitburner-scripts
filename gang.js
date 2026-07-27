@@ -10,11 +10,23 @@ const DEFAULTS = {
 /** @param {NS} ns **/
 export async function main(ns) {
 	const flags = ns.flags([
+		["help", false],
 		["money-weight", DEFAULTS.moneyWeight],
 		["respect-weight", DEFAULTS.respectWeight],
 		["equipment-budget", DEFAULTS.equipmentBudget],
 		["equipment-item-limit", DEFAULTS.equipmentItemLimit],
 	]);
+	if (flags.help) {
+		ns.tprint([
+			"Usage: run gang.js [options]",
+			"  --money-weight <number>          Task money priority (default: 1)",
+			"  --respect-weight <number>        Task respect priority (default: 1)",
+			"  --equipment-budget <fraction>    Cash budget per update (default: 0.10)",
+			"  --equipment-item-limit <fraction> Maximum cash fraction per item (default: 0.02)",
+			"  --help                           Show this help",
+		].join("\n"));
+		return;
+	}
 	const config = {
 		moneyWeight: nonnegativeFlag(flags["money-weight"], DEFAULTS.moneyWeight),
 		respectWeight: nonnegativeFlag(flags["respect-weight"], DEFAULTS.respectWeight),
