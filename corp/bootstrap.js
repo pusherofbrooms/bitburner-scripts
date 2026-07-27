@@ -18,7 +18,7 @@ export async function main(ns) {
   const [corpName = "JCorp", agri = "Agri", chem = "Chem"] = args._.map(String);
   const cities = ["Aevum", "Chongqing", "Sector-12", "New Tokyo", "Ishima", "Volhaven"];
   ns.disableLog("sleep");
-  const fmt = (n) => `$${ns.formatNumber(n, 3)}`;
+  const fmt = (n) => `$${ns.format.number(n, 3)}`;
   const info = () => c.getCorporation();
   const division = (name) => c.getDivision(name);
   const hasDivision = (name) => info().divisions.includes(name);
@@ -181,7 +181,7 @@ export async function main(ns) {
       const shown = c.getInvestmentOffer();
       if (shown.round === 1 && shown.funds > 0 && shown.shares > 0) {
         const choice = await ns.prompt(
-          `EXPECTED INVESTMENT ROUND 1: ${fmt(shown.funds)} for ${ns.formatNumber(shown.shares)} shares.\n` +
+          `EXPECTED INVESTMENT ROUND 1: ${fmt(shown.funds)} for ${ns.format.number(shown.shares, 3)} shares.\n` +
           `Accepting dilutes ownership. Automatic acceptance is strictly limited to round 1; choose Skip to handle it manually.`,
           { type: "select", choices: ["Accept expected round 1", "Skip / handle manually"] },
         );
