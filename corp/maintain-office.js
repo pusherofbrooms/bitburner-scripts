@@ -18,7 +18,7 @@ export async function main(ns) {
   }
 
   ns.tprint(
-    `Maintaining offices: energy >= ${energyThreshold}, morale >= ${moraleThreshold}, party $${ns.formatNumber(partySpendPerEmployee)}/employee`,
+    `Maintaining offices: energy >= ${energyThreshold}, morale >= ${moraleThreshold}, party $${ns.format.number(partySpendPerEmployee)}/employee`,
   );
 
   while (true) {
