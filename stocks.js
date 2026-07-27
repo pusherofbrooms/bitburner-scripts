@@ -46,15 +46,21 @@ export async function main(ns) {
 
   ns.disableLog("ALL");
   ns.ui.openTail();
+  if (ns.getHostname() !== "home") {
+    ns.tprint("ERROR: stocks.js must run on home so promotion targets are published to home.");
+    return;
+  }
 
   const constants = ns.stock.getConstants();
   await ensureMarketAccess(constants);
   const symbols = ns.stock.getSymbols();
   const histories = new Map(symbols.map((sym) => [sym, []]));
   const commission = constants.StockMarketCommission ?? 100e3;
+  const promotionTargetsPath = "/data/dnet-stock-targets.txt";
 
   if (flags.liquidate) {
     liquidateAll(symbols);
+    writePromotionTargets([]);
     return;
   }
 
@@ -70,6 +76,7 @@ export async function main(ns) {
     const rotatedSymbols = rebalance(data, has4s);
     buyBestPositions(data, has4s, rotatedSymbols);
     logStatus(data, has4s);
+    publishPromotionTargets(data, has4s);
   }
 
   async function ensureMarketAccess(constants) {
@@ -324,6 +331,39 @@ export async function main(ns) {
       if (shortShares > 0) ns.stock.sellShort(sym, shortShares);
     }
     ns.tprint("Liquidated all stock positions.");
+  }
+
+  function publishPromotionTargets(data, has4s) {
+    const targets = has4s ? data.flatMap((stock) => {
+      const held = [];
+      if (stock.longShares > 0 && stock.forecast > 0.5 && stock.longScore > 0) {
+        held.push(promotionTarget(stock, "L", stock.longShares, stock.longScore));
+      }
+      if (stock.shortShares > 0 && stock.forecast < 0.5 && stock.shortScore > 0) {
+        held.push(promotionTarget(stock, "S", stock.shortShares, stock.shortScore));
+      }
+      return held;
+    }).sort((a, b) => b.expectedProfitPerTick - a.expectedProfitPerTick).slice(0, 3) : [];
+
+    writePromotionTargets(targets);
+  }
+
+  function writePromotionTargets(targets) {
+    ns.write(promotionTargetsPath, JSON.stringify({ updatedAt: Date.now(), targets }), "w");
+  }
+
+  function promotionTarget(stock, position, shares, score) {
+    const price = ns.stock.getPrice(stock.sym);
+    return {
+      symbol: stock.sym,
+      position,
+      shares,
+      positionValue: shares * price,
+      forecast: stock.forecast,
+      volatility: stock.volatility,
+      score,
+      expectedProfitPerTick: shares * price * score,
+    };
   }
 
   function logStatus(data, has4s) {
