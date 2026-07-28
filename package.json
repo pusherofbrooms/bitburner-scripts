@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test corp/products.test.js"
   },
   "dependencies": {
     "pi-bitburner-bridge": "file:../pi-bitburner-bridge"
