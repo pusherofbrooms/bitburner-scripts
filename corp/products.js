@@ -5,7 +5,7 @@
  *   --reserve 100e9        Corporate cash that must remain untouched
  *   --min-budget 20e9      Minimum total investment per product
  *   --max-budget 1e12      Maximum total investment per product
- *   --fraction 0.10        Fraction of cash above reserve to invest
+ *   --fraction 0.30        Fraction of cash above reserve to invest
  *   --growth 1.15          Minimum investment relative to the newest product
  *   --design-ratio 0.50    Fraction invested in product design
  *   --prefix Leaf          Optional product-name prefix
@@ -21,7 +21,7 @@ export async function main(ns) {
     ["reserve", 100e9],
     ["min-budget", 20e9],
     ["max-budget", 1e12],
-    ["fraction", 0.10],
+    ["fraction", 0.30],
     ["growth", 1.15],
     ["design-ratio", 0.50],
     ["prefix", ""],
@@ -30,7 +30,7 @@ export async function main(ns) {
   ]);
   if (flags.help) {
     ns.tprint("Usage: run corp/products.js [division=Toba] [--city Sector-12] [--reserve 100e9] " +
-      "[--min-budget 20e9] [--max-budget 1e12] [--fraction 0.10] [--growth 1.15] " +
+      "[--min-budget 20e9] [--max-budget 1e12] [--fraction 0.30] [--growth 1.15] " +
       "[--design-ratio 0.50] [--prefix Leaf] [--dry-run]");
     return;
   }
