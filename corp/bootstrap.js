@@ -114,7 +114,18 @@ export async function main(ns) {
   if (missingApis.length) {
     ns.tprint("STOP: required API unlocks are absent; no round-1 setup was attempted after this check.");
     for (const x of missingApis) ns.tprint(`MISSING: ${x} — ${fmt(c.getUnlockCost(x))}`);
-    ns.tprint("Buying these from the $150b startup balance breaks the round-1 budget. See in-game documentation: Corporation > General Advice > Round 1, and the Office and Warehouse sections. You may perform the complete guide through the Corporation UI, but this script will not trust a vague manual-readiness confirmation or accept an offer it cannot verify.");
+    ns.tprint(
+      "Buying these from the $150b startup balance breaks the round-1 budget. Complete round 1 manually in the Corporation UI:\n" +
+      " • Expand Agriculture to all six cities and ensure each city has a warehouse.\n" +
+      " • Upgrade every office to size 4, hire four employees, and assign all four to R&D until Agriculture has at least 55 RP.\n" +
+      " • Then assign 1 Operations, 1 Engineer, 1 Business, and 1 Management employee per city.\n" +
+      ` • Buy tea and hold parties until every office has at least ${Number(a.morale)} energy and morale.\n` +
+      " • Enable Smart Supply everywhere and sell Food and Plants using MAX at MP.\n" +
+      ` • Reach ${Number(a["smart-storage"])} Smart Storage level(s), warehouse level ${Number(a["warehouse-level"])} in every city, and buy two Agriculture AdVerts.\n` +
+      " • Fill warehouse boost-material space, especially Real Estate, while retaining room for inputs and outputs.\n" +
+      ` • Verify the round-1 offer is at least ${fmt(Number(a["min-offer"]))}, then accept it manually.\n` +
+      "See in-game documentation: Corporation > General Advice > Round 1, plus the Office, Warehouse, and Boost Material sections. This script cannot verify or accept the offer without both APIs.",
+    );
     return;
   }
   if (!hasDiv(agri) && !spend("Agriculture", c.getIndustryData("Agriculture").startingCost, () => c.expandIndustry("Agriculture", agri))) return;
