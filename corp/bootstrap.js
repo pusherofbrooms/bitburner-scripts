@@ -1,215 +1,206 @@
-/**
- * Safe, self-funded Agriculture -> Chemical corporation bootstrap (Bitburner v3).
- * Usage: run corp/bootstrap.js [corporation-name] [agriculture-name] [chemical-name]
- * A new corporation costs $150b of PLAYER money and starts with $150b of CORPORATE funds.
- * Existing corporations are never renamed or replaced.
- * @param {NS} ns
- */
+const CITIES = ["Aevum", "Chongqing", "Sector-12", "New Tokyo", "Ishima", "Volhaven"];
+const BOOSTS = ["Hardware", "AI Cores", "Robots", "Real Estate"];
+
+/** Maximize product((1 + .002 * finalAmount) ^ industryFactor) for new purchases,
+ * subject to both incremental space and cash. KKT active sets naturally drop materials
+ * whose existing holdings are above their constrained optimum. */
+export function optimizeBoostMaterials(capacity, industry, materials, budget = Infinity, existing = {}) {
+  const zero = () => Object.fromEntries(BOOSTS.map((x) => [x, 0]));
+  if (!(capacity > 0) || !(budget > 0)) return zero();
+  const factors = { Hardware: industry.hardwareFactor, "AI Cores": industry.aiCoreFactor, Robots: industry.robotFactor, "Real Estate": industry.realEstateFactor };
+  const active = BOOSTS.filter((x) => factors[x] > 0 && materials[x]?.size > 0 && materials[x]?.marketPrice > 0);
+  if (!active.length) return zero();
+  const amounts = (spacePenalty, cashPenalty) => Object.fromEntries(BOOSTS.map((name) => {
+    if (!active.includes(name)) return [name, 0];
+    const m = materials[name];
+    const denominator = spacePenalty * m.size + cashPenalty * m.marketPrice;
+    const unconstrained = denominator ? factors[name] / denominator - 500 : Infinity;
+    return [name, Math.max(0, unconstrained - Math.max(0, existing[name] || 0))];
+  }));
+  const total = (xs, field) => active.reduce((sum, name) => sum + xs[name] * materials[name][field], 0);
+  // For each cash multiplier, select the space multiplier (possibly zero). Then
+  // bisect cash. This solves both KKT equations and handles low-space active sets.
+  const forCash = (cashPenalty) => {
+    if (total(amounts(0, cashPenalty), "size") <= capacity) return amounts(0, cashPenalty);
+    let lo = 0, hi = 1;
+    while (total(amounts(hi, cashPenalty), "size") > capacity) hi *= 2;
+    for (let i = 0; i < 100; i++) { const mid = (lo + hi) / 2; if (total(amounts(mid, cashPenalty), "size") > capacity) lo = mid; else hi = mid; }
+    return amounts(hi, cashPenalty);
+  };
+  let result = forCash(0);
+  if (total(result, "marketPrice") <= budget) return result;
+  let lo = 0, hi = 1;
+  while (total(forCash(hi), "marketPrice") > budget) hi *= 2;
+  for (let i = 0; i < 100; i++) { const mid = (lo + hi) / 2; if (total(forCash(mid), "marketPrice") > budget) lo = mid; else hi = mid; }
+  return forCash(hi);
+}
+
+export function staffingTransition(employeeJobs, researchStage) {
+  const desired = researchStage ? { "Research & Development": 4 } : { Operations: 1, Engineer: 1, Business: 1, Management: 1 };
+  const assigned = Object.entries(employeeJobs).filter(([job, count]) => job !== "Unassigned" && count > 0);
+  const matches = Object.entries(desired).every(([job, count]) => employeeJobs[job] === count) && assigned.length === Object.keys(desired).length;
+  if (matches) return "ready";
+  if (!researchStage && assigned.length === 1 && employeeJobs["Research & Development"] === 4) return "clear-rd";
+  return assigned.length ? "pause" : "assign";
+}
+
+export function affordable(funds, reserve, costs) {
+  return costs.reduce((n, x) => n + Math.max(0, x), 0) <= Math.max(0, funds - reserve);
+}
+
+export function teaCost(constants, numEmployees) {
+  return constants.teaCostPerEmployee * numEmployees;
+}
+
+/** Give each remaining city an equal claim on currently available funds. Unspent
+ * shares remain available and are redistributed when the next city is reached. */
+export function cityPurchaseBudget(funds, reserve, citiesRemaining) {
+  return Math.max(0, funds - reserve) / Math.max(1, citiesRemaining);
+}
+
+export function boostTargetReady(industry, held, desiredAdditions, current) {
+  const factors = { Hardware: industry.hardwareFactor, "AI Cores": industry.aiCoreFactor, Robots: industry.robotFactor, "Real Estate": industry.realEstateFactor };
+  return BOOSTS.every((name) => factors[name] <= 0 ||
+    (held[name] + desiredAdditions[name] > 0 && current[name] + 1e-6 >= held[name] + desiredAdditions[name]));
+}
+
+export function roundOneMissing(state, minimumOffer) {
+  const missing = [];
+  if (state.cityCount !== 6) missing.push("Agriculture is not in all six cities");
+  if (!state.allWarehouses) missing.push("a warehouse is missing");
+  if (!state.officesSize4) missing.push("an office is not size 4 and fully staffed");
+  if (!state.finalJobs) missing.push("final staffing is not 1 Operations/1 Engineer/1 Business/1 Management per city");
+  if (!state.officeWellness) missing.push(`an office has energy or morale below ${state.wellnessThreshold}`);
+  if (state.research < 55) missing.push(`division research is ${state.research}, below 55`);
+  if (!state.smartSupply) missing.push("Smart Supply is not enabled everywhere");
+  if (!state.sales) missing.push("Food/Plants sales are not configured");
+  if (state.adverts < 2) missing.push(`only ${state.adverts}/2 AdVerts are owned`);
+  if (!state.capacityReady) missing.push("warehouse/boost-material capacity target is incomplete");
+  if (state.offerRound !== 1) missing.push(`investment offer is round ${state.offerRound}, not round 1`);
+  if (state.offerFunds < minimumOffer) missing.push(`offer is ${state.offerFunds}, below minimum ${minimumOffer}`);
+  return missing;
+}
+
+/** @param {NS} ns */
 export async function main(ns) {
   const c = ns.corporation;
-  const args = ns.flags([["help", false], ["manual", false]]);
-  if (args.help) {
-    ns.tprint("Usage: run corp/bootstrap.js [corp=JCorp] [agriculture=Agri] [chemical=Chem] [--manual]\n" +
-      "Creates a self-funded corporation and prepares Agriculture before optionally accepting investment round 1. " +
-      "Office API and Warehouse API are auto-granted by SF3.3; otherwise this script will not buy them from startup funds. " +
-      "Use --manual to confirm the equivalent UI setup explicitly.");
-    return;
-  }
-  const [corpName = "JCorp", agri = "Agri", chem = "Chem"] = args._.map(String);
-  const cities = ["Aevum", "Chongqing", "Sector-12", "New Tokyo", "Ishima", "Volhaven"];
-  ns.disableLog("sleep");
+  const a = ns.flags([["help", false], ["reserve", 5e9], ["min-offer", 210e9], ["morale", 99], ["warehouse-level", 2], ["smart-storage", 1], ["fill", 0.8]]);
+  if (a.help) { ns.tprint("run corp/bootstrap.js [corp=JCorp] [agri=Agri] [chem=Chem] [--reserve 5e9] [--min-offer 210e9] [--morale 99] [--warehouse-level 2] [--smart-storage 1] [--fill .8]"); return; }
+  const [corpName = "JCorp", agri = "Agri", chem = "Chem"] = a._.map(String);
+  if (![corpName, agri, chem].every((name) => name.trim())) { ns.tprint("ABORT: corporation and division names must not be empty."); return; }
+  if (agri === chem) { ns.tprint("ABORT: division names must differ."); return; }
   const fmt = (n) => `$${ns.format.number(n, 3)}`;
   const info = () => c.getCorporation();
-  const division = (name) => c.getDivision(name);
-  const hasDivision = (name) => info().divisions.includes(name);
-
-  async function proceed(message) {
-    ns.tprint(message);
-    const answer = await ns.prompt(`${message}\n\nContinue? Cancel/No exits safely; rerun later to resume.`, { type: "boolean" });
-    if (!answer) ns.tprint("Cancelled. No later steps or purchases were performed.");
-    return answer;
+  const div = () => c.getDivision(agri);
+  const hasDiv = (n) => info().divisions.includes(n);
+  if (c.hasCorporation()) {
+    if (hasDiv(agri) && c.getDivision(agri).industry !== "Agriculture") { ns.tprint(`${agri} is not Agriculture.`); return; }
+    if (hasDiv(chem) && c.getDivision(chem).industry !== "Chemical") { ns.tprint(`${chem} is not Chemical.`); return; }
   }
-  function enough(label, cost) {
-    const available = info().funds;
-    if (available >= cost) return true;
-    ns.tprint(`PAUSED: ${label} costs ${fmt(cost)} but the corporation has ${fmt(available)}. Let it earn money or accept the appropriate investment, then rerun.`);
-    return false;
-  }
-  function safe(label, action) {
-    try { action(); return true; }
-    catch (e) { ns.tprint(`PAUSED: ${label} failed: ${String(e)}\nState may have changed. Inspect the Corporation UI and rerun.`); return false; }
-  }
-  function validate(name, expected) {
-    if (!name.trim()) { ns.tprint(`ABORT: the ${expected} division name cannot be empty.`); return false; }
-    if (!hasDivision(name)) return true;
-    const actual = division(name).industry;
-    if (actual !== expected) {
-      ns.tprint(`ABORT: existing division “${name}” is ${actual}, not ${expected}. Choose another division name; nothing will be overwritten.`);
-      return false;
-    }
-    return true;
-  }
-  function expandIndustry(type, name) {
-    if (hasDivision(name)) return true;
-    const cost = c.getIndustryData(type).startingCost;
-    if (!enough(`${type} division “${name}”`, cost)) return false;
-    if (!safe(`creating ${type} division “${name}”`, () => c.expandIndustry(type, name))) return false;
-    ns.tprint(`Created ${type} division “${name}” for ${fmt(cost)}.`);
-    return true;
-  }
-  function expandCities(name) {
-    for (const city of cities) {
-      if (division(name).cities.includes(city)) continue;
-      // In v3 city expansion creates its initial office; this is the documented replacement for removed getExpandCityCost.
-      const cost = c.getConstants().officeInitialCost;
-      if (!enough(`expanding ${name} to ${city}`, cost)) return false;
-      if (!safe(`expanding ${name} to ${city}`, () => c.expandCity(name, city))) return false;
-      ns.tprint(`Expanded ${name} to ${city} for ${fmt(cost)}.`);
-    }
-    return true;
-  }
-  function prepareWarehouses(name) {
-    for (const city of division(name).cities) {
-      if (!c.hasWarehouse(name, city)) {
-        const cost = c.getConstants().warehouseInitialCost;
-        if (!enough(`warehouse for ${name}/${city}`, cost)) return false;
-        if (!safe(`purchasing warehouse for ${name}/${city}`, () => c.purchaseWarehouse(name, city))) return false;
-        ns.tprint(`Purchased ${name}/${city} warehouse for ${fmt(cost)}.`);
-      }
-    }
-    return true;
-  }
-  function staffInitialOffices(name) {
-    for (const city of division(name).cities) {
-      let office = c.getOffice(name, city);
-      if (office.numEmployees > 0) {
-        const jobs = office.employeeJobs;
-        const ready = office.numEmployees === office.size && jobs.Operations > 0 && jobs.Engineer > 0 && jobs.Business > 0;
-        if (!ready) {
-          ns.tprint(`PAUSED: ${name}/${city} has existing partial or non-production staffing (${office.numEmployees}/${office.size}). Fill all seats and assign at least one Operations, Engineer, and Business employee in the UI, then rerun; existing assignments were not overwritten.`);
-          return false;
-        }
-        ns.tprint(`${name}/${city}: preserving existing full staffing and production assignments.`);
-        continue;
-      }
-      while (office.numEmployees < office.size) {
-        if (!c.hireEmployee(name, city)) {
-          ns.tprint(`PAUSED: could not fill all seats in ${name}/${city}.`);
-          return false;
-        }
-        office = c.getOffice(name, city);
-      }
-      // Fill existing seats only: balanced production/sales, with extra seats shared between Management and R&D.
-      const size = office.numEmployees;
-      const jobs = ["Operations", "Engineer", "Business", "Management", "Research & Development"];
-      const counts = jobs.map(() => 0);
-      for (let i = 0; i < size; i++) counts[i < 3 ? i : 3 + ((i - 3) % 2)]++;
-      for (let i = 0; i < jobs.length; i++) {
-        if (!c.setJobAssignment(name, city, jobs[i], counts[i])) {
-          ns.tprint(`PAUSED: could not assign ${counts[i]} ${jobs[i]} employees in ${name}/${city}.`);
-          return false;
-        }
-      }
-      ns.tprint(`${name}/${city}: staffed ${size}/${office.size}; jobs ${jobs.map((j, i) => `${j}=${counts[i]}`).join(", ")}.`);
-    }
-    return true;
-  }
-  function enableSupply(name) {
-    if (!c.hasUnlock("Smart Supply")) {
-      const cost = c.getUnlockCost("Smart Supply");
-      if (!enough("Smart Supply unlock", cost)) return false;
-      if (!safe("purchasing Smart Supply", () => c.purchaseUnlock("Smart Supply"))) return false;
-      ns.tprint(`Purchased Smart Supply for ${fmt(cost)}.`);
-    }
-    for (const city of division(name).cities) {
-      try {
-        if (c.hasWarehouse(name, city) && !c.getWarehouse(name, city).smartSupplyEnabled) c.setSmartSupply(name, city, true);
-      } catch (e) { ns.tprint(`Smart Supply/Warehouse API unavailable at ${name}/${city}: ${String(e)}. Enable it manually in the warehouse UI.`); return false; }
-    }
-    return true;
-  }
-  function configureAgriculture(name) {
-    if (!prepareWarehouses(name) || !enableSupply(name) || !staffInitialOffices(name)) return false;
-    for (const city of division(name).cities) {
-      c.sellMaterial(name, city, "Food", "MAX", "MP");
-      c.sellMaterial(name, city, "Plants", "MAX", "MP");
-    }
-    ns.tprint(`Agriculture is configured in all six cities: existing office seats staffed, warehouses present, Smart Supply enabled, and Food/Plants sold MAX at MP.`);
-    return true;
-  }
+  const spend = (label, cost, fn) => {
+    if (!affordable(info().funds, Number(a.reserve), [cost])) { ns.tprint(`PAUSED: ${label} costs ${fmt(cost)}; preserving reserve ${fmt(Number(a.reserve))}.`); return false; }
+    try { fn(); return true; } catch (e) { ns.tprint(`PAUSED: ${label} failed: ${String(e)}`); return false; }
+  };
 
   if (!c.hasCorporation()) {
-    ns.tprint("SELF-FUNDING EXPLAINER: Creation removes $150b from your PLAYER wallet. The new corporation receives a separate $150b CORPORATE balance used for divisions, cities, warehouses, offices, and upgrades.");
-    const check = c.canCreateCorporation(true);
-    if (check !== "Success") { ns.tprint(`Cannot create a fully self-funded corporation: ${check}. Usually you need $150b player cash, SF3 access, and a node whose corporation softcap permits creation.`); return; }
-    if (!await proceed(`Ready to create “${corpName}” using $150b of PLAYER money. This is always self-funded; no BN3 seed-money path is used.`)) return;
-    if (!safe("creating corporation", () => { if (!c.createCorporation(corpName, true)) throw new Error("createCorporation returned false"); })) return;
-    ns.tprint(`Created “${corpName}”; corporate funds: ${fmt(info().funds)}.`);
-  } else ns.tprint(`Resuming corporation “${info().name}” with ${fmt(info().funds)} corporate funds. Script argument “${corpName}” does not rename it.`);
+    ns.tprint("Startup budget: self-funding takes $150b PLAYER cash and supplies only $150b CORPORATE funds; Office/Warehouse unlock purchases do not fit the documented round-1 plan.");
+    if (c.canCreateCorporation(true) !== "Success") { ns.tprint(`Cannot self-fund corporation: ${c.canCreateCorporation(true)}`); return; }
+    if (!await ns.prompt(`Create ${corpName} with $150b player cash?`, { type: "boolean" })) return;
+    if (!c.createCorporation(corpName, true)) { ns.tprint("Corporation creation failed."); return; }
+  }
 
-  if (agri === chem) { ns.tprint("ABORT: Agriculture and Chemical division names must be distinct."); return; }
-  if (!validate(agri, "Agriculture") || !validate(chem, "Chemical")) return;
-  const chemicalAlreadyExists = hasDivision(chem);
-  if (!expandIndustry("Agriculture", agri) || !expandCities(agri)) return;
-
-  const officeApi = c.hasUnlock("Office API");
-  const warehouseApi = c.hasUnlock("Warehouse API");
-  if (officeApi && warehouseApi) {
-    ns.tprint("Detected Office API and Warehouse API unlocks (SF3.3 grants both automatically). No API unlock purchase is needed.");
-    if (!configureAgriculture(agri)) return;
-  } else if (!args.manual) {
-    ns.tprint(`PAUSED: required API unlocks are not available (Office API: ${officeApi}, Warehouse API: ${warehouseApi}).\n` +
-      `This script deliberately will not spend startup funds buying those expensive unlocks. Configure Agriculture in the UI, then rerun with --manual to provide the explicit readiness confirmation.`);
+  // This check deliberately precedes every round-1 division/city purchase: no partial bootstrap.
+  const missingApis = ["Office API", "Warehouse API"].filter((x) => !c.hasUnlock(x));
+  if (missingApis.length) {
+    ns.tprint("STOP: required API unlocks are absent; no round-1 setup was attempted after this check.");
+    for (const x of missingApis) ns.tprint(`MISSING: ${x} — ${fmt(c.getUnlockCost(x))}`);
+    ns.tprint("Buying these from the $150b startup balance breaks the round-1 budget. See in-game documentation: Corporation > General Advice > Round 1, and the Office and Warehouse sections. You may perform the complete guide through the Corporation UI, but this script will not trust a vague manual-readiness confirmation or accept an offer it cannot verify.");
     return;
-  } else {
-    if (!await proceed(
-      `MANUAL AGRICULTURE READINESS CONFIRMATION (${agri}):\n` +
-      `• Every operating city has a warehouse.\n` +
-      `• Every initial office is hired and jobs include Operations, Engineer, and Business (use Management/R&D for extra seats; no office growth is required).\n` +
-      `• Smart Supply is purchased and enabled in every warehouse, so Water/Chemicals are supplied.\n` +
-      `• Produced Food and Plants are each configured to sell MAX at MP in every city.\n\n` +
-      `Confirm only after checking all four items in the Corporation UI. Current corporate funds: ${fmt(info().funds)}.`)) return;
   }
+  if (!hasDiv(agri) && !spend("Agriculture", c.getIndustryData("Agriculture").startingCost, () => c.expandIndustry("Agriculture", agri))) return;
+  for (const city of CITIES) if (!div().cities.includes(city) && !spend(`expand ${city}`, c.getConstants().officeInitialCost, () => c.expandCity(agri, city))) return;
+  for (const city of CITIES) if (!c.hasWarehouse(agri, city) && !spend(`warehouse ${city}`, c.getConstants().warehouseInitialCost, () => c.purchaseWarehouse(agri, city))) return;
 
-  if (chemicalAlreadyExists) {
-    ns.tprint(`Chemical division “${chem}” already exists; skipping all investment-offer inspection and acceptance on this rerun.`);
-  } else {
-    const corp = info();
-    if (corp.public) {
-      ns.tprint("Corporation is public; investment offers no longer apply. Continuing without accepting funding.");
-    } else {
-      const shown = c.getInvestmentOffer();
-      if (shown.round === 1 && shown.funds > 0 && shown.shares > 0) {
-        const choice = await ns.prompt(
-          `EXPECTED INVESTMENT ROUND 1: ${fmt(shown.funds)} for ${ns.format.number(shown.shares, 3)} shares.\n` +
-          `Accepting dilutes ownership. Automatic acceptance is strictly limited to round 1; choose Skip to handle it manually.`,
-          { type: "select", choices: ["Accept expected round 1", "Skip / handle manually"] },
-        );
-        if (choice !== "Accept expected round 1") { ns.tprint("Round 1 was not accepted. Stopping before Chemical so the decision remains deliberate."); return; }
-        const current = c.getInvestmentOffer();
-        if (info().public || current.round !== 1 || current.funds <= 0 || current.shares <= 0) {
-          ns.tprint("ABORT: the round-1 offer became unavailable or changed. Refusing acceptance."); return;
-        }
-        if (!c.acceptInvestmentOffer()) { ns.tprint("Round 1 was not accepted; state changed or the offer was exhausted. Stopping safely."); return; }
-        ns.tprint(`Accepted investment round 1 for approximately ${fmt(current.funds)}.`);
-      } else {
-        ns.tprint(`Investment funding is already beyond round 1 or unavailable (round=${shown.round}). This script will never accept a later round automatically; continuing Chemical setup using current corporate funds.`);
-      }
+  // Offices size four, then all-R&D until 55 RP. Preserve surprising nonempty assignments by pausing.
+  const researchStage = div().researchPoints < 55;
+  for (const city of CITIES) {
+    let o = c.getOffice(agri, city);
+    if (o.size < 4 && !spend(`office size 4 ${city}`, c.getOfficeSizeUpgradeCost(agri, city, 4 - o.size), () => c.upgradeOfficeSize(agri, city, 4 - o.size))) return;
+    while ((o = c.getOffice(agri, city)).numEmployees < 4) if (!c.hireEmployee(agri, city)) { ns.tprint(`Could not hire in ${city}.`); return; }
+    const desired = researchStage ? { "Research & Development": 4 } : { Operations: 1, Engineer: 1, Business: 1, Management: 1 };
+    const assigned = Object.entries(o.employeeJobs).filter(([k, v]) => k !== "Unassigned" && v > 0);
+    const transition = staffingTransition(o.employeeJobs, researchStage);
+    if (transition === "pause") { ns.tprint(`PAUSED: ${agri}/${city} has existing assignments (${assigned.map(([k,v]) => `${k}=${v}`).join(", ")}); not overwriting surprising staffing. Set ${researchStage ? "4 R&D" : "1 Ops/1 Engineer/1 Business/1 Management"} or clear assignments, then rerun.`); return; }
+    if (transition !== "ready") {
+      if (transition === "clear-rd" && !c.setJobAssignment(agri, city, "Research & Development", 0)) { ns.tprint(`Could not clear R&D in ${city}.`); return; }
+      for (const [job, n] of Object.entries(desired)) if (!c.setJobAssignment(agri, city, job, n)) { ns.tprint(`Could not assign ${job} in ${city}.`); return; }
     }
+    o = c.getOffice(agri, city);
+    if (o.avgEnergy < Number(a.morale)) {
+      const cost = teaCost(c.getConstants(), o.numEmployees);
+      if (!spend(`tea ${city}`, cost, () => c.buyTea(agri, city))) return;
+    }
+    o = c.getOffice(agri, city);
+    if (o.avgMorale < Number(a.morale) && !spend(`party ${city}`, 500000 * o.numEmployees, () => c.throwParty(agri, city, 500000))) return;
+    // Both actions are queued until the next corporation cycle, so gate on a fresh office reading below.
+    o = c.getOffice(agri, city);
+  }
+  if (researchStage) { ns.tprint(`R&D stage active: ${ns.format.number(div().researchPoints, 2)}/55 RP. Employees are assigned to R&D; wait and rerun for final staffing.`); return; }
+
+  if (!c.hasUnlock("Smart Supply") && !spend("Smart Supply", c.getUnlockCost("Smart Supply"), () => c.purchaseUnlock("Smart Supply"))) return;
+  for (const city of CITIES) { c.setSmartSupply(agri, city, true); c.sellMaterial(agri, city, "Food", "MAX", "MP"); c.sellMaterial(agri, city, "Plants", "MAX", "MP"); }
+  while (div().numAdVerts < 2) if (!spend("AdVert", c.getHireAdVertCost(agri), () => c.hireAdVert(agri))) return;
+  while (c.getUpgradeLevel("Smart Storage") < Number(a["smart-storage"])) if (!spend("Smart Storage", c.getUpgradeLevelCost("Smart Storage"), () => c.levelUpgrade("Smart Storage"))) return;
+  for (const city of CITIES) while (c.getWarehouse(agri, city).level < Number(a["warehouse-level"])) if (!spend(`warehouse upgrade ${city}`, c.getUpgradeWarehouseCost(agri, city), () => c.upgradeWarehouse(agri, city))) return;
+
+  const industry = c.getIndustryData("Agriculture");
+  const materialData = Object.fromEntries(BOOSTS.map((x) => [x, c.getMaterialData(x)]));
+  const boostReady = {};
+  for (const [cityIndex, city] of CITIES.entries()) {
+    const w = c.getWarehouse(agri, city);
+    const held = Object.fromEntries(BOOSTS.map((name) => [name, c.getMaterial(agri, city, name).stored]));
+    const live = Object.fromEntries(BOOSTS.map((name) => [name, { ...materialData[name], marketPrice: c.getMaterial(agri, city, name).marketPrice }]));
+    const freeForBoosts = Math.max(0, w.size * Math.min(1, Number(a.fill)) - w.sizeUsed);
+    // Readiness is the space-constrained target, never the amount today's cash can buy.
+    const desiredAdditions = optimizeBoostMaterials(freeForBoosts, industry, live, Infinity, held);
+    let cityBudget = cityPurchaseBudget(info().funds, Number(a.reserve), CITIES.length - cityIndex);
+    const additions = optimizeBoostMaterials(freeForBoosts, industry, live, cityBudget, held);
+    for (const name of BOOSTS) {
+      // Refresh price and funds immediately before every purchase while retaining this city's fair share.
+      const price = c.getMaterial(agri, city, name).marketPrice;
+      const affordableAmount = Math.min(additions[name], cityBudget / price, Math.max(0, info().funds - Number(a.reserve)) / price);
+      if (affordableAmount > 1e-6 && !spend(`${name} in ${city}`, affordableAmount * price, () => c.bulkPurchase(agri, city, name, affordableAmount))) return;
+      cityBudget -= affordableAmount * price;
+    }
+    const current = Object.fromEntries(BOOSTS.map((name) => [name, c.getMaterial(agri, city, name).stored]));
+    boostReady[city] = boostTargetReady(industry, held, desiredAdditions, current);
   }
 
-  if (!expandIndustry("Chemical", chem) || !expandCities(chem)) return;
-  let chemSetup = "manual setup required";
-  if (officeApi && warehouseApi) {
-    if (!prepareWarehouses(chem) || !enableSupply(chem) || !staffInitialOffices(chem)) return;
-    chemSetup = "initial warehouses, supply, and staffing configured";
+  const offer = info().public ? { round: 0, funds: 0 } : c.getInvestmentOffer();
+  const readState = (currentOffer) => ({
+    cityCount: div().cities.length, allWarehouses: CITIES.every((x) => c.hasWarehouse(agri, x)),
+    officesSize4: CITIES.every((x) => { const o=c.getOffice(agri,x); return o.size >= 4 && o.numEmployees >= 4; }),
+    finalJobs: CITIES.every((x) => { const j=c.getOffice(agri,x).employeeJobs; return j.Operations===1&&j.Engineer===1&&j.Business===1&&j.Management===1; }),
+    officeWellness: CITIES.every((x) => { const o=c.getOffice(agri,x); return o.avgEnergy >= Number(a.morale) && o.avgMorale >= Number(a.morale); }),
+    wellnessThreshold: Number(a.morale), research: div().researchPoints, smartSupply: CITIES.every((x) => c.getWarehouse(agri,x).smartSupplyEnabled),
+    sales: CITIES.every((x) => ["Food", "Plants"].every((m) => { const material = c.getMaterial(agri, x, m); return material.desiredSellAmount === "MAX" && material.desiredSellPrice === "MP"; })),
+    adverts: div().numAdVerts, capacityReady: CITIES.every((x) => c.getWarehouse(agri,x).level >= Number(a["warehouse-level"]) && boostReady[x]), offerRound: currentOffer.round, offerFunds: currentOffer.funds,
+  });
+  const state = readState(offer);
+  const roundOneAlreadyPast = info().public || offer.round > 1 || hasDiv(chem);
+  if (!roundOneAlreadyPast) {
+    const missing = roundOneMissing(state, Number(a["min-offer"]));
+    if (missing.length) { ns.tprint("STOP: round-1 offer prerequisites are not satisfied:"); missing.forEach((x) => ns.tprint(` • ${x}`)); return; }
+    if (!await ns.prompt(`Accept round-1 offer ${fmt(offer.funds)} (minimum ${fmt(Number(a["min-offer"]))})?`, {type:"boolean"})) return;
+    const fresh = c.getInvestmentOffer();
+    const changed = roundOneMissing(readState(fresh), Number(a["min-offer"]));
+    if (changed.length) { ns.tprint("Offer changed; not accepted:\n" + changed.map((x) => ` • ${x}`).join("\n")); return; }
+    if (!c.acceptInvestmentOffer()) { ns.tprint("Offer changed; not accepted."); return; }
+  } else ns.tprint("Investment round 1 is already past; no later offer will be accepted automatically.");
+
+  if (!hasDiv(chem)) {
+    const cost = c.getIndustryData("Chemical").startingCost;
+    if (!spend("Chemical division", cost, () => c.expandIndustry("Chemical", chem))) return;
   }
-  if (!await proceed(
-    `CHEMICAL CHECKLIST (${chem}):\n` +
-    `• ${chemSetup}. Keep Chemical offices at their existing size until profits justify deliberate growth.\n` +
-    `• Chemical consumes Plants and produces Chemicals; Agriculture consumes Chemicals. With Export unlocked, reciprocal same-city routes can reduce market purchases. Otherwise Smart Supply buys inputs.\n` +
-    `• Before every office, warehouse, advert, or upgrade purchase, inspect CORPORATE funds and preserve working cash. Employee wages and input purchases continue every cycle.\n` +
-    `• Smart Factories improves production; Smart Storage adds capacity. Buy gradually rather than exhausting cash.\n` +
-    `Current corporate funds: ${fmt(info().funds)}.`)) return;
-  ns.tprint("Bootstrap complete. The corporation is operating; monitor warehouse fullness, profit, morale/energy, and future investment rounds in the UI. Reruns safely recheck completed setup.");
+  ns.tprint("Round 1 complete and Chemical created. Rerun-safe bootstrap finished.");
 }

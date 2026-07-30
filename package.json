@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test corp/products.test.js"
+    "test": "node --test corp/products.test.js corp/bootstrap.test.js"
   },
   "dependencies": {
     "pi-bitburner-bridge": "file:../pi-bitburner-bridge"
