@@ -1,7 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { shouldUseCheat, simulateTwoMoves } from "./go-cheat-lookahead.js";
+import {
+  isAheadAfterKomi as cheatIsAheadAfterKomi,
+  shouldUseCheat,
+  simulateTwoMoves,
+} from "./go-cheat-lookahead.js";
+import { isAheadAfterKomi as normalIsAheadAfterKomi } from "./go-lookahead.js";
+
+test("both players account for Illuminati's 7.5 komi before passing", () => {
+  for (const isAhead of [normalIsAheadAfterKomi, cheatIsAheadAfterKomi]) {
+    assert.equal(isAhead({ black: 20, white: 13 }, "Illuminati"), false);
+    assert.equal(isAhead({ black: 21, white: 13 }, "Illuminati"), true);
+  }
+});
+
+test("komi comparison uses the selected opponent", () => {
+  const score = { black: 15, white: 13 };
+  assert.equal(normalIsAheadAfterKomi(score, "Netburners"), true);
+  assert.equal(normalIsAheadAfterKomi(score, "Slum Snakes"), false);
+});
 
 test("cheat threshold requires 100% for the opener and 95% thereafter", () => {
   assert.equal(shouldUseCheat(1, 0), true);

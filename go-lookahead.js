@@ -156,7 +156,7 @@ function chooseLookaheadMove(board, valid, options) {
   if (!best) return null;
 
   // Pass when ahead and every searched move appears to self-fill or worsen the position after the likely reply.
-  if (rawBoardScore.black > rawBoardScore.white && best.score < current - 2 && !best.sim.captured) return null;
+  if (isAheadAfterKomi(rawBoardScore, options.opponent) && best.score < current - 2 && !best.sim.captured) return null;
 
   const near = scoredMoves.filter((m) => m.score >= best.score - 0.35);
   return near[Math.floor(Math.random() * near.length)];
@@ -508,6 +508,23 @@ function cornerInfluenceBonus(board, x, y) {
     }
   }
   return live >= 7 && stones === 0 ? 10 : 0;
+}
+
+export function isAheadAfterKomi(score, opponent) {
+  return score.black > score.white + opponentKomi(opponent);
+}
+
+function opponentKomi(opponent) {
+  return {
+    "No AI": 5.5,
+    Netburners: 1.5,
+    "Slum Snakes": 3.5,
+    "The Black Hand": 3.5,
+    Tetrads: 5.5,
+    Daedalus: 5.5,
+    Illuminati: 7.5,
+    "????????????": 9.5,
+  }[opponent] ?? 5.5;
 }
 
 function boardScore(board) {
