@@ -16,7 +16,9 @@
     {
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.nodejs pkgs.typescript ];
+          # Pin the Node major used by the checked-in npm lockfile; project-specific
+          # typings (such as @types/node) remain reproducible npm dependencies.
+          packages = [ pkgs.nodejs_24 pkgs.typescript ];
         };
       });
     };
