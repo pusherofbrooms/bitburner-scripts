@@ -68,6 +68,18 @@ test("boost readiness uses the unconstrained target, not a cash-constrained purc
   assert.equal(boostTargetReady(industry, held, desired, completed), true);
 });
 
+test("boost readiness does not require materials excluded by the optimizer", () => {
+  const robotIndustry = { ...industry, robotFactor: .3 };
+  const held = { Hardware: 750, "AI Cores": 620, Robots: 0, "Real Estate": 41000 };
+  const desired = { Hardware: 0, "AI Cores": 0, Robots: 0, "Real Estate": 0 };
+  assert.equal(boostTargetReady(robotIndustry, held, desired, held), true,
+    "a full warehouse must not require a token Robot purchase");
+
+  desired.Hardware = 1;
+  assert.equal(boostTargetReady(robotIndustry, held, desired, held), false,
+    "an actual optimizer request must still be completed");
+});
+
 test("offer gate reports every missing prerequisite including minimum and office wellness", () => {
   const missing = roundOneMissing({ cityCount: 1, allWarehouses: false, officesSize4: false, finalJobs: false,
     officeWellness: false, wellnessThreshold: 99, research: 0, smartSupply: false, sales: false, adverts: 0,

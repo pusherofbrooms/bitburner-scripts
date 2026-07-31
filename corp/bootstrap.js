@@ -60,8 +60,10 @@ export function cityPurchaseBudget(funds, reserve, citiesRemaining) {
 
 export function boostTargetReady(industry, held, desiredAdditions, current) {
   const factors = { Hardware: industry.hardwareFactor, "AI Cores": industry.aiCoreFactor, Robots: industry.robotFactor, "Real Estate": industry.realEstateFactor };
+  // The optimizer may deliberately exclude a space-inefficient boost material.
+  // Readiness means all requested additions were bought, not that every material is nonzero.
   return BOOSTS.every((name) => factors[name] <= 0 ||
-    (held[name] + desiredAdditions[name] > 0 && current[name] + 1e-6 >= held[name] + desiredAdditions[name]));
+    current[name] + 1e-6 >= held[name] + desiredAdditions[name]);
 }
 
 export function roundOneMissing(state, minimumOffer) {
