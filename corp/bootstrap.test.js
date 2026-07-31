@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { affordable, boostTargetReady, cityPurchaseBudget, optimizeBoostMaterials, roundOneMissing, staffingTransition, teaCost } from "./bootstrap.js";
+import { affordable, boostTargetReady, cityPurchaseBudget, finalStaffingReady, optimizeBoostMaterials, roundOneMissing, staffingTransition, teaCost } from "./bootstrap.js";
 
 const industry = { hardwareFactor: .2, aiCoreFactor: .3, robotFactor: 0, realEstateFactor: .5 };
 const materials = {
@@ -36,12 +36,21 @@ test("existing holdings consume objective baseline and occupied capacity is call
   assert.ok(used(optimizeBoostMaterials(20, industry, materials)) > used(additions));
 });
 
-test("staffing only automates the exact R&D to final transition", () => {
+test("staffing safely transitions R&D and accepts productive staffing", () => {
   assert.equal(staffingTransition({ "Research & Development": 4 }, true), "ready");
   assert.equal(staffingTransition({ "Research & Development": 4 }, false), "clear-rd");
   assert.equal(staffingTransition({ Operations: 1, Engineer: 1, Business: 1, Management: 1 }, false), "ready");
+  assert.equal(staffingTransition({ Operations: 3, Engineer: 2, Business: 1, Management: 2 }, false), "ready");
   assert.equal(staffingTransition({ "Research & Development": 3, Operations: 1 }, false), "pause");
   assert.equal(staffingTransition({ Unassigned: 4 }, false), "assign");
+});
+
+test("larger offices are ready when all workers occupy the four productive roles", () => {
+  assert.equal(finalStaffingReady({ Operations: 3, Engineer: 2, Business: 1, Management: 2, Unassigned: 0 }), true);
+  assert.equal(finalStaffingReady({ Operations: 3, Engineer: 2, Business: 1, Management: 1, Unassigned: 1 }), false);
+  assert.equal(finalStaffingReady({ Operations: 3, Engineer: 2, Business: 1, Management: 1, Intern: 1 }), false);
+  assert.equal(finalStaffingReady({ Operations: 3, Engineer: 2, Business: 1, Management: 1, "Research & Development": 1 }), false);
+  assert.equal(finalStaffingReady({ Operations: 3, Engineer: 2, Business: 0, Management: 3 }), false);
 });
 
 test("budgeting preserves reserve at boundary and uses supplied market-price totals", () => {

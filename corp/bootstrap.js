@@ -35,10 +35,18 @@ export function optimizeBoostMaterials(capacity, industry, materials, budget = I
   return forCash(hi);
 }
 
+export function finalStaffingReady(employeeJobs) {
+  const productiveJobs = ["Operations", "Engineer", "Business", "Management"];
+  return productiveJobs.every((job) => employeeJobs[job] >= 1) &&
+    Object.entries(employeeJobs).every(([job, count]) => count <= 0 || productiveJobs.includes(job));
+}
+
 export function staffingTransition(employeeJobs, researchStage) {
   const desired = researchStage ? { "Research & Development": 4 } : { Operations: 1, Engineer: 1, Business: 1, Management: 1 };
   const assigned = Object.entries(employeeJobs).filter(([job, count]) => job !== "Unassigned" && count > 0);
-  const matches = Object.entries(desired).every(([job, count]) => employeeJobs[job] === count) && assigned.length === Object.keys(desired).length;
+  const matches = researchStage
+    ? Object.entries(desired).every(([job, count]) => employeeJobs[job] === count) && assigned.length === Object.keys(desired).length
+    : finalStaffingReady(employeeJobs);
   if (matches) return "ready";
   if (!researchStage && assigned.length === 1 && employeeJobs["Research & Development"] === 4) return "clear-rd";
   return assigned.length ? "pause" : "assign";
@@ -71,7 +79,7 @@ export function roundOneMissing(state, minimumOffer) {
   if (state.cityCount !== 6) missing.push("Agriculture is not in all six cities");
   if (!state.allWarehouses) missing.push("a warehouse is missing");
   if (!state.officesSize4) missing.push("an office is not size 4 and fully staffed");
-  if (!state.finalJobs) missing.push("final staffing is not 1 Operations/1 Engineer/1 Business/1 Management per city");
+  if (!state.finalJobs) missing.push("final staffing does not cover Operations/Engineer/Business/Management with no employees in other roles");
   if (!state.officeWellness) missing.push(`an office has energy or morale below ${state.wellnessThreshold}`);
   if (state.research < 55) missing.push(`division research is ${state.research}, below 55`);
   if (!state.smartSupply) missing.push("Smart Supply is not enabled everywhere");
@@ -143,7 +151,7 @@ export async function main(ns) {
     const desired = researchStage ? { "Research & Development": 4 } : { Operations: 1, Engineer: 1, Business: 1, Management: 1 };
     const assigned = Object.entries(o.employeeJobs).filter(([k, v]) => k !== "Unassigned" && v > 0);
     const transition = staffingTransition(o.employeeJobs, researchStage);
-    if (transition === "pause") { ns.tprint(`PAUSED: ${agri}/${city} has existing assignments (${assigned.map(([k,v]) => `${k}=${v}`).join(", ")}); not overwriting surprising staffing. Set ${researchStage ? "4 R&D" : "1 Ops/1 Engineer/1 Business/1 Management"} or clear assignments, then rerun.`); return; }
+    if (transition === "pause") { ns.tprint(`PAUSED: ${agri}/${city} has existing assignments (${assigned.map(([k,v]) => `${k}=${v}`).join(", ")}); not overwriting surprising staffing. Set ${researchStage ? "4 R&D" : "at least 1 Ops/1 Engineer/1 Business/1 Management, with no other assigned roles"} or clear assignments, then rerun.`); return; }
     if (transition !== "ready") {
       if (transition === "clear-rd" && !c.setJobAssignment(agri, city, "Research & Development", 0)) { ns.tprint(`Could not clear R&D in ${city}.`); return; }
       for (const [job, n] of Object.entries(desired)) if (!c.setJobAssignment(agri, city, job, n)) { ns.tprint(`Could not assign ${job} in ${city}.`); return; }
@@ -193,7 +201,7 @@ export async function main(ns) {
   const readState = (currentOffer) => ({
     cityCount: div().cities.length, allWarehouses: CITIES.every((x) => c.hasWarehouse(agri, x)),
     officesSize4: CITIES.every((x) => { const o=c.getOffice(agri,x); return o.size >= 4 && o.numEmployees >= 4; }),
-    finalJobs: CITIES.every((x) => { const j=c.getOffice(agri,x).employeeJobs; return j.Operations===1&&j.Engineer===1&&j.Business===1&&j.Management===1; }),
+    finalJobs: CITIES.every((x) => finalStaffingReady(c.getOffice(agri,x).employeeJobs)),
     officeWellness: CITIES.every((x) => { const o=c.getOffice(agri,x); return o.avgEnergy >= Number(a.morale) && o.avgMorale >= Number(a.morale); }),
     wellnessThreshold: Number(a.morale), research: div().researchPoints, smartSupply: CITIES.every((x) => c.getWarehouse(agri,x).smartSupplyEnabled),
     sales: CITIES.every((x) => ["Food", "Plants"].every((m) => { const material = c.getMaterial(agri, x, m); return material.desiredSellAmount === "MAX" && material.desiredSellPrice === "MP"; })),
