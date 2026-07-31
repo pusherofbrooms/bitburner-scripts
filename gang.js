@@ -50,9 +50,8 @@ export async function main(ns) {
 		equipMembers(ns, config);
 		ascend(ns);
 		territoryWinChance = territoryWar(ns);
-		const wantedPenalty = ns.gang.getGangInformation().wantedPenalty;
-		if (!cleaningWanted && wantedPenalty <= DEFAULTS.wantedCleanupStart) cleaningWanted = true;
-		else if (cleaningWanted && wantedPenalty >= DEFAULTS.wantedCleanupStop) cleaningWanted = false;
+		const gangInfo = ns.gang.getGangInformation();
+		cleaningWanted = nextWantedCleanup(cleaningWanted, gangInfo.wantedLevel, gangInfo.wantedPenalty);
 		assignMembers(ns, territoryWinChance, cleaningWanted, config);
 		await ns.gang.nextUpdate();
 	}
@@ -207,6 +206,15 @@ function taskGains(ns, gangInfo, member, task, cleaningWanted) {
 	}
 
 	return { task, money: Math.max(0, moneyGain), respect: Math.max(0, respectGain), allowed: true };
+}
+
+export function nextWantedCleanup(cleaningWanted, wantedLevel, wantedPenalty) {
+	// Gang wanted level cannot fall below 1. At startup, respect=1 and wanted=1
+	// produces a 0.5 penalty that Vigilante Justice cannot improve. Build respect first.
+	if (wantedLevel <= 1) return false;
+	if (!cleaningWanted && wantedPenalty <= DEFAULTS.wantedCleanupStart) return true;
+	if (cleaningWanted && wantedPenalty >= DEFAULTS.wantedCleanupStop) return false;
+	return cleaningWanted;
 }
 
 function nonnegativeFlag(value, fallback) {
